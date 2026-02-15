@@ -371,24 +371,16 @@ Recent comprehensive code review identified and resolved **25 issues** across cr
 
 ## Contributing
 
-This project was built with Claude Code (Opus 4.6 + Sonnet 4.5) following a rigorous implementation and review process:
-
-1. **Architecture Review**: Critical design decisions validated by Opus 4.6
-2. **Implementation**: 5-phase build (Foundation, Data Aggregation, Clustering, Visualization, Reports, Polish)
-3. **Code Review**: Exhaustive review finding 29 issues across security, bugs, performance, and architecture
-4. **Code Fixing**: Systematic resolution of all critical and high-priority issues
-5. **Testing**: 100% test pass rate (33/33 tests)
+Contributions are welcome. Keep changes focused, tested, and documented.
 
 **Commit Standards:**
 - Conventional commits (feat/fix/docs/refactor/test)
-- Descriptive messages with Co-Authored-By attribution
+- Descriptive messages that explain intent
 - All tests passing before merge
 
 ## Documentation
 
 - **[QUICKSTART.md](QUICKSTART.md)** - Step-by-step first quarterly review guide
-- **[IMPLEMENTATION_COMPLETE.md](IMPLEMENTATION_COMPLETE.md)** - Technical implementation summary
-- **Phase Documentation** - Detailed phase-by-phase implementation notes (PHASE*.md)
 
 ## Performance Expectations
 
@@ -418,5 +410,3 @@ Proprietary
 ---
 
 **Built with:** React 19, TypeScript, FastAPI, Tauri v2, Ollama, Scikit-learn, Python-docx, Recharts
-
-**Powered by:** Claude Opus 4.6 & Sonnet 4.5

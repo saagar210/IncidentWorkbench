@@ -266,8 +266,6 @@ Output: `src-tauri/target/release/bundle/macos/Incident Workbench.app`
 ## 📚 Additional Documentation
 
 - `README.md` - Full setup guide + troubleshooting
-- `IMPLEMENTATION_COMPLETE.md` - Technical summary
-- `backend/PHASE*_*.md` - Phase-by-phase details
 
 ---
 
@@ -275,7 +273,7 @@ Output: `src-tauri/target/release/bundle/macos/Incident Workbench.app`
 
 The Incident Workbench is production-ready. Enjoy transforming your quarterly incident reviews from a 5-hour manual process to a <5-minute automated workflow!
 
-**Questions?** Check the troubleshooting section in README.md or review phase documentation.
+**Questions?** Check the troubleshooting section in `README.md`.
 
 ---
 
