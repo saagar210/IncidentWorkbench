@@ -44,7 +44,8 @@ export interface SlackIngestRequest {
 }
 
 export interface SlackExportIngestRequest {
-  zip_path: string;
+  json_path?: string;
+  json_content?: string;
   channel_name: string;
 }
 

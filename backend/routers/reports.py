@@ -2,7 +2,7 @@
 
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
 from database import db
+from exceptions import OllamaModelNotFoundError, OllamaUnavailableError
 from models.api import ReportGenerateRequest
 from models.cluster import ClusterResult
 from models.report import MetricsResult, ReportResult
@@ -19,6 +20,32 @@ from services.ollama_client import OllamaClient
 from services.summarizer import ClusterSummarizer
 
 router = APIRouter(prefix="/reports", tags=["reports"])
+
+
+def _fallback_executive_summary(
+    quarter: str,
+    metrics: MetricsResult,
+    clusters: list[ClusterResult],
+    error: Exception,
+) -> str:
+    """Generate deterministic summary text when Ollama is unavailable."""
+    top_cluster = max(clusters, key=lambda c: c.size, default=None)
+    top_cluster_text = (
+        f"Top cluster: {top_cluster.summary or f'Cluster {top_cluster.cluster_id}'} "
+        f"({top_cluster.size} incidents)."
+        if top_cluster
+        else "No clusters were available for summarization."
+    )
+
+    return (
+        f"{quarter} incident summary generated without Ollama due to: {error}.\n\n"
+        f"Total incidents: {metrics.total_incidents}. "
+        f"SEV1: {metrics.sev1_count}, SEV2: {metrics.sev2_count}, "
+        f"SEV3: {metrics.sev3_count}, SEV4: {metrics.sev4_count}.\n\n"
+        f"Mean resolution (hours): {metrics.mean_resolution_hours}. "
+        f"P90 resolution (hours): {metrics.p90_resolution_hours}.\n\n"
+        f"{top_cluster_text}"
+    )
 
 
 @router.post("/generate")
@@ -80,11 +107,19 @@ async def generate_report(request: ReportGenerateRequest) -> dict:
         ollama = OllamaClient()
         try:
             summarizer = ClusterSummarizer(ollama, conn)
-            executive_summary = await summarizer.generate_executive_summary(
-                quarter=request.quarter_label,
-                metrics=metrics,
-                clusters=clusters,
-            )
+            try:
+                executive_summary = await summarizer.generate_executive_summary(
+                    quarter=request.quarter_label,
+                    metrics=metrics,
+                    clusters=clusters,
+                )
+            except (OllamaUnavailableError, OllamaModelNotFoundError) as error:
+                executive_summary = _fallback_executive_summary(
+                    quarter=request.quarter_label,
+                    metrics=metrics,
+                    clusters=clusters,
+                    error=error,
+                )
         finally:
             await ollama.close()
 
@@ -96,7 +131,7 @@ async def generate_report(request: ReportGenerateRequest) -> dict:
             title=request.title,
             executive_summary=executive_summary,
             metrics=metrics,
-            created_at=datetime.utcnow().isoformat(),
+            created_at=datetime.now(timezone.utc).isoformat(),
             docx_path=None,
         )
 

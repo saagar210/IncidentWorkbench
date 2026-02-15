@@ -3,6 +3,9 @@
 import asyncio
 import json
 import pytest
+from fastapi.testclient import TestClient
+
+from main import app
 from services.jira_client import JiraClient
 from services.slack_client import SlackClient
 from services.normalizer import IncidentNormalizer
@@ -99,6 +102,43 @@ def test_slack_export_parser():
     assert len(messages) == 2
 
     print("✓ Slack export parser test passed")
+
+
+def test_slack_export_ingest_inline_json_tracks_updates():
+    """Inline Slack export JSON ingestion should work and track upserts correctly."""
+    client = TestClient(app)
+
+    # Start from a clean state for deterministic counter assertions.
+    client.delete("/incidents")
+
+    messages = [
+        {
+            "text": "SEV2: API degraded",
+            "ts": "1705315800.123456",
+            "user": "U12345",
+        }
+    ]
+    payload = {
+        "json_content": json.dumps(messages),
+        "channel_name": "incidents",
+    }
+
+    first = client.post("/ingest/slack-export", json=payload)
+    assert first.status_code == 200
+    first_data = first.json()
+    assert first_data["incidents_ingested"] == 1
+    assert first_data["incidents_updated"] == 0
+    assert first_data["errors"] == []
+
+    second = client.post("/ingest/slack-export", json=payload)
+    assert second.status_code == 200
+    second_data = second.json()
+    assert second_data["incidents_ingested"] == 0
+    assert second_data["incidents_updated"] == 1
+    assert second_data["errors"] == []
+
+    # Clean up shared DB state.
+    client.delete("/incidents")
 
 
 @pytest.mark.asyncio

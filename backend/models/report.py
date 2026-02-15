@@ -1,7 +1,5 @@
 """Report result models."""
 
-from datetime import datetime
-
 from pydantic import BaseModel, Field
 
 
@@ -36,8 +34,3 @@ class ReportResult(BaseModel):
     metrics: MetricsResult
     docx_path: str | None = None
     created_at: str
-
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-        }

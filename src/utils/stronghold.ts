@@ -3,33 +3,107 @@
  */
 
 import { Client, Stronghold } from "@tauri-apps/plugin-stronghold";
+import { invoke } from "@tauri-apps/api/core";
 import { appDataDir } from "@tauri-apps/api/path";
 
 let strongholdClient: Client | null = null;
+let strongholdInstance: Stronghold | null = null;
 
 const VAULT_NAME = "incident-workbench-vault";
 const RECORD_PATH = "credentials";
+const STRONGHOLD_FILENAME = "credentials.stronghold";
+
+export class VaultLockedError extends Error {
+  constructor() {
+    super("Credentials vault is locked");
+    this.name = "VaultLockedError";
+  }
+}
+
+async function getStrongholdPath(): Promise<string> {
+  const appDir = await appDataDir();
+  return `${appDir}/${STRONGHOLD_FILENAME}`;
+}
+
+async function loadOrCreateClient(stronghold: Stronghold): Promise<Client> {
+  try {
+    return await stronghold.loadClient(VAULT_NAME);
+  } catch {
+    return await stronghold.createClient(VAULT_NAME);
+  }
+}
+
+async function persistStronghold(): Promise<void> {
+  if (!strongholdInstance) {
+    throw new VaultLockedError();
+  }
+  await strongholdInstance.save();
+}
 
 /**
- * Initialize Stronghold client
+ * Return whether the credentials vault has been unlocked in this session.
+ */
+export function isVaultUnlocked(): boolean {
+  return strongholdClient !== null;
+}
+
+/**
+ * Unlock the credentials vault with a user-provided passphrase.
+ */
+export async function unlockVault(passphrase: string): Promise<void> {
+  const normalized = passphrase.trim();
+  if (normalized.length < 12) {
+    throw new Error("Vault passphrase must be at least 12 characters.");
+  }
+
+  const strongholdPath = await getStrongholdPath();
+
+  try {
+    const stronghold = await Stronghold.load(strongholdPath, normalized);
+    const client = await loadOrCreateClient(stronghold);
+
+    strongholdInstance = stronghold;
+    strongholdClient = client;
+  } catch (error) {
+    await lockVault();
+    console.error("Failed to unlock Stronghold vault:", error);
+    throw new Error(
+      "Failed to unlock credentials vault. Check your passphrase or reset the vault."
+    );
+  }
+}
+
+/**
+ * Lock and unload the credentials vault from memory.
+ */
+export async function lockVault(): Promise<void> {
+  if (strongholdInstance) {
+    try {
+      await strongholdInstance.unload();
+    } catch (error) {
+      console.error("Failed to unload Stronghold instance:", error);
+    }
+  }
+  strongholdClient = null;
+  strongholdInstance = null;
+}
+
+/**
+ * Reset (delete) the credentials vault file.
+ */
+export async function resetVault(): Promise<void> {
+  await lockVault();
+  await invoke("reset_credentials_vault");
+}
+
+/**
+ * Get the unlocked Stronghold client.
  */
 async function getStrongholdClient(): Promise<Client> {
   if (strongholdClient) {
     return strongholdClient;
   }
-
-  try {
-    const appDir = await appDataDir();
-    const strongholdPath = `${appDir}/credentials.stronghold`;
-
-    const stronghold = await Stronghold.load(strongholdPath, "incident-workbench-password");
-    strongholdClient = await stronghold.loadClient(VAULT_NAME);
-
-    return strongholdClient;
-  } catch (error) {
-    console.error("Failed to initialize Stronghold client:", error);
-    throw new Error(`Stronghold initialization failed: ${error}`);
-  }
+  throw new VaultLockedError();
 }
 
 /**
@@ -42,6 +116,7 @@ export async function saveCredentials(key: string, value: string): Promise<void>
   const encoder = new TextEncoder();
   const encoded = encoder.encode(value);
   await store.insert(`${RECORD_PATH}/${key}`, Array.from(encoded));
+  await persistStronghold();
 }
 
 /**
@@ -66,6 +141,9 @@ export async function readCredentials(key: string): Promise<string | null> {
       throw new Error(`Credential decode error for '${key}': ${decodeError}`);
     }
   } catch (error) {
+    if (error instanceof VaultLockedError) {
+      throw error;
+    }
     // Distinguish between "not found" (which is fine) and actual errors
     if (error instanceof Error && error.message.includes("Credential decode error")) {
       throw error;
@@ -83,6 +161,7 @@ export async function deleteCredentials(key: string): Promise<void> {
   const store = client.getStore();
 
   await store.remove(`${RECORD_PATH}/${key}`);
+  await persistStronghold();
 }
 
 /**

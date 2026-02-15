@@ -1,0 +1,83 @@
+name: Release Gates
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+jobs:
+  frontend_and_backend:
+    name: Frontend Build + Backend Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Frontend build
+        run: npm run build
+
+      - name: Frontend unit tests
+        run: npm run test
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install backend dependencies
+        run: pip install -e "backend/.[dev]"
+
+      - name: Backend tests
+        run: |
+          cd backend
+          python -m pytest test_phase0.py test_phase1.py test_phase2.py test_phase5.py -v
+          python -m pytest -v
+
+  phase4_live_e2e:
+    name: Phase 4 Live E2E
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install backend dependencies
+        run: pip install -e "backend/.[dev]"
+
+      - name: Run live backend + gated e2e
+        run: |
+          set -euo pipefail
+          cd backend
+          python main.py --port 8765 &
+          backend_pid=$!
+          trap "kill $backend_pid || true" EXIT
+          sleep 3
+          RUN_E2E_PHASE4=1 python -m pytest test_e2e_phase4.py -v
+          kill $backend_pid || true
+
+  rust_supply_chain:
+    name: Rust Advisory Gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run Rust audit baseline gate
+        run: bash scripts/audit-rust.sh

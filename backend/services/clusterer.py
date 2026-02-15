@@ -63,9 +63,22 @@ class IncidentClusterer:
         """)
         rows = cursor.fetchall()
 
+        # Auto-k mode uses silhouette score, which requires >=3 samples.
+        if num_clusters is None:
+            min_required = max(min_clusters, 3)
+            if len(rows) < min_required:
+                raise InsufficientDataError(
+                    f"Need at least {min_required} incidents with embeddings for auto clustering, got {len(rows)}"
+                )
+
         if len(rows) < min_clusters:
             raise InsufficientDataError(
                 f"Need at least {min_clusters} incidents with embeddings, got {len(rows)}"
+            )
+
+        if num_clusters is not None and len(rows) < num_clusters:
+            raise InsufficientDataError(
+                f"Need at least {num_clusters} incidents with embeddings, got {len(rows)}"
             )
 
         # Build embedding matrix
@@ -129,7 +142,13 @@ class IncidentClusterer:
         best_labels = None
         best_k = min_k
 
-        for k in range(min_k, min(max_k + 1, len(matrix))):
+        max_candidate_k = min(max_k, len(matrix) - 1)
+        if max_candidate_k < min_k:
+            raise InsufficientDataError(
+                f"Need at least {min_k + 1} incidents for auto clustering, got {len(matrix)}"
+            )
+
+        for k in range(min_k, max_candidate_k + 1):
             model = AgglomerativeClustering(
                 n_clusters=k,
                 linkage=linkage,
@@ -142,6 +161,9 @@ class IncidentClusterer:
                 best_score = score
                 best_labels = labels
                 best_k = k
+
+        if best_labels is None:
+            raise ClusteringError("Failed to determine clusters in auto mode")
 
         return best_labels, best_k, best_score
 

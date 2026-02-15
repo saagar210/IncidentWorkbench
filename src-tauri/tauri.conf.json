@@ -1,7 +1,7 @@
 {
   "productName": "Incident Workbench",
   "version": "0.1.0",
-  "identifier": "com.incidentworkbench.app",
+  "identifier": "com.incidentworkbench.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",

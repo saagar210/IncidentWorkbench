@@ -2,11 +2,13 @@
 
 import asyncio
 import json
+import pytest
 from database import Database
 from services.normalizer import IncidentNormalizer
 from models.incident import IncidentSource, Severity
 
 
+@pytest.mark.asyncio
 async def test_full_pipeline():
     """Test full ingestion pipeline with database."""
     # Initialize database

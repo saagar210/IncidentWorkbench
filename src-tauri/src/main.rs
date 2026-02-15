@@ -1,12 +1,38 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use incident_workbench_lib::{get_backend_port, BackendPort, SidecarProcess};
-use std::sync::Mutex;
-use tauri::Manager;
+use incident_workbench_lib::{BackendPort, SidecarProcess};
+use std::{fs, sync::Mutex};
+use tauri::{Manager, State};
+use tauri_plugin_shell::ShellExt;
+
+#[tauri::command]
+fn get_backend_port(state: State<BackendPort>) -> Result<u16, String> {
+    state
+        .0
+        .lock()
+        .map_err(|e| format!("Failed to lock backend port: {e}"))?
+        .ok_or_else(|| "Backend port not yet set".to_string())
+}
+
+#[tauri::command]
+fn reset_credentials_vault(app: tauri::AppHandle) -> Result<(), String> {
+    let app_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to locate app data directory: {e}"))?;
+    let snapshot_path = app_dir.join("credentials.stronghold");
+
+    if snapshot_path.exists() {
+        fs::remove_file(&snapshot_path)
+            .map_err(|e| format!("Failed to delete credentials vault: {e}"))?;
+    }
+
+    Ok(())
+}
 
 fn main() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_stronghold::Builder::new(|_| Ok(vec![])).build())
+        .plugin(tauri_plugin_stronghold::Builder::new(|_| vec![]).build())
         .plugin(tauri_plugin_shell::init())
         .manage(BackendPort(Mutex::new(None)))
         .manage(SidecarProcess(Mutex::new(None)))
@@ -20,7 +46,7 @@ fn main() {
             // In development, the sidecar might not exist yet - that's okay
             // Production builds will have it bundled
             match sidecar_command.spawn() {
-                Ok((rx, child)) => {
+                Ok((_rx, child)) => {
                     println!("Sidecar spawned successfully");
 
                     // TODO: Read port from rx (child.stdout)
@@ -53,14 +79,17 @@ fn main() {
                 // Clean up sidecar process on window close
                 if let Some(sidecar_state) = window.try_state::<SidecarProcess>() {
                     if let Ok(mut proc) = sidecar_state.0.lock() {
-                        if let Some(mut child) = proc.take() {
+                        if let Some(child) = proc.take() {
                             let _ = child.kill();
                         }
                     }
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![get_backend_port])
+        .invoke_handler(tauri::generate_handler![
+            get_backend_port,
+            reset_credentials_vault
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

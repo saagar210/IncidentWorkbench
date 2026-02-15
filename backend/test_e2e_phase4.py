@@ -1,14 +1,19 @@
 """End-to-end test for Phase 4: Generate report from real cluster run."""
 
 import base64
-import json
+import os
+import sqlite3
 import time
 from io import BytesIO
+from pathlib import Path
+from uuid import uuid4
 
+import pytest
 import requests
 from PIL import Image
 
 BASE_URL = "http://127.0.0.1:8765"
+RUN_E2E = os.getenv("RUN_E2E_PHASE4") == "1"
 
 
 def create_test_chart_png() -> str:
@@ -20,6 +25,98 @@ def create_test_chart_png() -> str:
     return base64.b64encode(buffer.read()).decode("utf-8")
 
 
+def _seed_cluster_run_if_missing() -> str:
+    """Create minimal incident+cluster data so E2E always exercises report generation."""
+    run_id = str(uuid4())
+    db_path = Path.home() / ".incident-workbench" / "incidents.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.row_factory = sqlite3.Row
+
+        now = int(time.time())
+        occurred_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - 3600))
+        resolved_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - 1800))
+
+        conn.execute(
+            """
+            INSERT INTO incidents (
+                external_id, source, severity, title, description,
+                occurred_at, resolved_at, raw_data, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(external_id, source) DO UPDATE SET
+                title = excluded.title,
+                description = excluded.description,
+                resolved_at = excluded.resolved_at,
+                raw_data = excluded.raw_data,
+                status = excluded.status
+            """,
+            (
+                f"e2e-{run_id}",
+                "slack_export",
+                "SEV2",
+                "E2E seeded incident",
+                "Seeded incident to validate live report generation path.",
+                occurred_at,
+                resolved_at,
+                '{"seeded": true}',
+                "resolved",
+            ),
+        )
+
+        incident_row = conn.execute(
+            "SELECT id FROM incidents WHERE external_id = ? AND source = ?",
+            (f"e2e-{run_id}", "slack_export"),
+        ).fetchone()
+        assert incident_row is not None, "Failed to create seeded incident"
+        incident_id = incident_row[0]
+
+        conn.execute(
+            """
+            INSERT INTO cluster_runs (id, n_clusters, method, parameters)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                run_id,
+                1,
+                "manual-seed",
+                '{"seeded": true, "linkage": "average", "metric": "cosine"}',
+            ),
+        )
+
+        cluster_cursor = conn.execute(
+            """
+            INSERT INTO clusters (run_id, cluster_label, summary, centroid_text)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                run_id,
+                0,
+                "Seeded incident cluster",
+                "Synthetic cluster for e2e report generation validation.",
+            ),
+        )
+        cluster_id = cluster_cursor.lastrowid
+
+        conn.execute(
+            """
+            INSERT INTO cluster_members (cluster_id, incident_id, distance_to_centroid)
+            VALUES (?, ?, ?)
+            """,
+            (cluster_id, incident_id, 0.0),
+        )
+
+        conn.commit()
+        return run_id
+    finally:
+        conn.close()
+
+
+@pytest.mark.skipif(
+    not RUN_E2E,
+    reason="Set RUN_E2E_PHASE4=1 and start backend on 127.0.0.1:8765 to run this test",
+)
 def test_e2e_report_generation():
     """Test complete report generation flow."""
     print("=" * 60)
@@ -28,7 +125,10 @@ def test_e2e_report_generation():
 
     # Step 1: Check health
     print("\n1. Checking backend health...")
-    response = requests.get(f"{BASE_URL}/health")
+    try:
+        response = requests.get(f"{BASE_URL}/health")
+    except requests.ConnectionError as exc:
+        pytest.skip(f"Backend is not running at {BASE_URL}: {exc}")
     assert response.status_code == 200, f"Health check failed: {response.text}"
     health = response.json()
     print(f"   ✓ Backend is healthy: {health['status']}")
@@ -41,11 +141,15 @@ def test_e2e_report_generation():
     runs = response.json()
 
     if not runs:
-        print("   ⚠️  No cluster runs found. Please run clustering first.")
-        print("   Skipping report generation test.")
-        return
-
-    latest_run = runs[0]
+        print("   ⚠️  No cluster runs found. Seeding one for E2E coverage...")
+        seeded_run_id = _seed_cluster_run_if_missing()
+        response = requests.get(f"{BASE_URL}/clusters")
+        assert response.status_code == 200, f"Failed to re-fetch cluster runs: {response.text}"
+        runs = response.json()
+        latest_run = next((run for run in runs if run["run_id"] == seeded_run_id), runs[0])
+        print(f"   ✓ Seeded cluster run: {latest_run['run_id']}")
+    else:
+        latest_run = runs[0]
     print(f"   ✓ Found {len(runs)} cluster run(s)")
     print(f"   Latest run: {latest_run['run_id']} with {latest_run['n_clusters']} clusters")
 

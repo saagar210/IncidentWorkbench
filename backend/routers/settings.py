@@ -3,7 +3,11 @@
 from fastapi import APIRouter, HTTPException
 
 from exceptions import JiraConnectionError, SlackAPIError
-from models.api import TestConnectionResponse
+from models.api import (
+    JiraConnectionTestRequest,
+    SlackConnectionTestRequest,
+    TestConnectionResponse,
+)
 from services.jira_client import JiraClient
 from services.slack_client import SlackClient
 
@@ -12,12 +16,14 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 
 @router.post("/test-jira")
 async def test_jira_connection(
-    url: str,
-    email: str,
-    api_token: str,
+    request: JiraConnectionTestRequest,
 ) -> TestConnectionResponse:
     """Test Jira connection with provided credentials."""
-    client = JiraClient(url=url, email=email, api_token=api_token)
+    client = JiraClient(
+        url=request.url,
+        email=request.email,
+        api_token=request.api_token,
+    )
 
     try:
         server_info = await client.test_connection()
@@ -25,8 +31,8 @@ async def test_jira_connection(
             success=True,
             message="Successfully connected to Jira",
             details={
-                "url": url,
-                "email": email,
+                "url": request.url,
+                "email": request.email,
                 "server_title": server_info.get("title", "Unknown"),
                 "server_version": server_info.get("version", "Unknown"),
             },
@@ -47,10 +53,10 @@ async def test_jira_connection(
 
 @router.post("/test-slack")
 async def test_slack_connection(
-    bot_token: str,
+    request: SlackConnectionTestRequest,
 ) -> TestConnectionResponse:
     """Test Slack connection with provided bot token."""
-    client = SlackClient(bot_token=bot_token)
+    client = SlackClient(bot_token=request.bot_token)
 
     try:
         auth_info = await client.test_connection()

@@ -88,6 +88,11 @@ This starts:
 
 ### Run Tests
 
+**Frontend unit tests:**
+```bash
+npm run test
+```
+
 **All tests (recommended):**
 ```bash
 cd backend
@@ -102,6 +107,14 @@ python3 -m pytest test_phase0.py test_phase1.py test_phase2.py test_phase5.py -v
 - `test_phase2.py` - Clustering (Ward+cosine guard, auto k-selection, LLM naming)
 - `test_phase5.py` - Error handling (WAL mode, foreign keys, edge cases)
 
+**Live gated E2E (report generation):**
+```bash
+cd backend
+python3 main.py --port 8765
+# in another shell:
+RUN_E2E_PHASE4=1 python3 -m pytest test_e2e_phase4.py -v
+```
+
 ## Production Build
 
 ### Build Sidecar Binary
@@ -114,6 +127,12 @@ bash scripts/build-sidecar.sh
 
 ```bash
 npm run tauri build
+```
+
+### Rust Advisory Baseline Gate
+
+```bash
+bash scripts/audit-rust.sh
 ```
 
 The built app will be in `src-tauri/target/release/bundle/`.

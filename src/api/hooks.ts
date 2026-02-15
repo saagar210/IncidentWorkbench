@@ -163,14 +163,7 @@ export function useTestJiraConnection() {
   return useMutation({
     mutationFn: async (params: { url: string; email: string; api_token: string }) => {
       const client = await getApiClient();
-      const searchParams = new URLSearchParams({
-        url: params.url,
-        email: params.email,
-        api_token: params.api_token,
-      });
-      const response = await client.post<TestConnectionResponse>(
-        `/settings/test-jira?${searchParams.toString()}`
-      );
+      const response = await client.post<TestConnectionResponse>("/settings/test-jira", params);
       return response.data;
     },
   });
@@ -183,12 +176,7 @@ export function useTestSlackConnection() {
   return useMutation({
     mutationFn: async (params: { bot_token: string }) => {
       const client = await getApiClient();
-      const searchParams = new URLSearchParams({
-        bot_token: params.bot_token,
-      });
-      const response = await client.post<TestConnectionResponse>(
-        `/settings/test-slack?${searchParams.toString()}`
-      );
+      const response = await client.post<TestConnectionResponse>("/settings/test-slack", params);
       return response.data;
     },
   });

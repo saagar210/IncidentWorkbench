@@ -1,6 +1,6 @@
 """Incident domain models."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -36,9 +36,4 @@ class Incident(BaseModel):
     occurred_at: datetime
     resolved_at: datetime | None = None
     raw_data: dict = Field(default_factory=dict)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-        }
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

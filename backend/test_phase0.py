@@ -21,7 +21,7 @@ def test_jira_connection():
     """Test Jira connection testing endpoint."""
     response = client.post(
         "/settings/test-jira",
-        params={
+        json={
             "url": "https://test.atlassian.net",
             "email": "test@example.com",
             "api_token": "fake-token",
@@ -38,7 +38,7 @@ def test_slack_connection():
     """Test Slack connection testing endpoint."""
     response = client.post(
         "/settings/test-slack",
-        params={"bot_token": "xoxb-fake-token"},
+        json={"bot_token": "xoxb-fake-token"},
     )
     assert response.status_code == 200
     data = response.json()
@@ -49,6 +49,9 @@ def test_slack_connection():
 
 def test_list_incidents():
     """Test incidents list endpoint."""
+    # Ensure deterministic state across repeated/local runs.
+    client.delete("/incidents")
+
     response = client.get("/incidents")
     assert response.status_code == 200
     data = response.json()

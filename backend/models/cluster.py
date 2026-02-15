@@ -1,6 +1,6 @@
 """Clustering result models."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field
 
@@ -24,9 +24,4 @@ class ClusterRunResult(BaseModel):
     parameters: dict = Field(default_factory=dict)
     clusters: list[ClusterResult] = Field(default_factory=list)
     noise_incident_ids: list[int] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-        }
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

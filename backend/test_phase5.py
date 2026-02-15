@@ -86,7 +86,7 @@ def test_jira_connection_error_returns_error():
 
     response = client.post(
         "/settings/test-jira",
-        params={
+        json={
             "url": "https://invalid-jira-url.example.com",
             "email": "test@example.com",
             "api_token": "invalid_token"

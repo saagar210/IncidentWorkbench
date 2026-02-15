@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from models.cluster import ClusterRunResult
 from models.incident import Incident, Severity
@@ -30,8 +30,34 @@ class SlackIngestRequest(BaseModel):
 class SlackExportIngestRequest(BaseModel):
     """Request to ingest from Slack export JSON."""
 
-    json_path: str = Field(..., description="Path to Slack export JSON file")
+    json_path: str | None = Field(default=None, description="Path to Slack export JSON file")
+    json_content: str | None = Field(default=None, description="Raw Slack export JSON content")
     channel_name: str = Field(..., description="Channel name to extract")
+
+    @model_validator(mode="after")
+    def validate_json_source(self):
+        """Require exactly one JSON source (path or inline content)."""
+        has_path = bool(self.json_path)
+        has_content = bool(self.json_content)
+
+        if has_path == has_content:
+            raise ValueError("Provide exactly one of 'json_path' or 'json_content'")
+
+        return self
+
+
+class JiraConnectionTestRequest(BaseModel):
+    """Request to test Jira connection."""
+
+    url: str = Field(..., description="Jira instance URL")
+    email: str = Field(..., description="Jira user email")
+    api_token: str = Field(..., description="Jira API token")
+
+
+class SlackConnectionTestRequest(BaseModel):
+    """Request to test Slack connection."""
+
+    bot_token: str = Field(..., description="Slack bot token")
 
 
 class ClusterRequest(BaseModel):
@@ -84,11 +110,6 @@ class ReportResponse(BaseModel):
     metrics: MetricsResult
     file_path: str
     generated_at: datetime
-
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-        }
 
 
 class IncidentResponse(BaseModel):

@@ -151,6 +151,13 @@ async def ingest_from_slack(request: SlackIngestRequest) -> IngestResponse:
                         source=IncidentSource.SLACK,
                     )
 
+                    # Check if row exists before upsert to track inserts vs updates
+                    check = conn.execute(
+                        "SELECT id FROM incidents WHERE external_id = ? AND source = ?",
+                        (incident.external_id, incident.source.value),
+                    ).fetchone()
+                    existed_before = check is not None
+
                     # Insert or update
                     cursor = conn.execute(
                         """
@@ -178,7 +185,10 @@ async def ingest_from_slack(request: SlackIngestRequest) -> IngestResponse:
                     )
 
                     if cursor.rowcount > 0:
-                        ingested += 1
+                        if existed_before:
+                            updated += 1
+                        else:
+                            ingested += 1
 
                 except Exception as e:
                     errors.append(f"Failed to normalize thread {thread_ts}: {str(e)}")
@@ -210,9 +220,15 @@ async def ingest_from_slack_export(request: SlackExportIngestRequest) -> IngestR
     updated = 0
 
     try:
-        # Read JSON file
-        with open(request.json_path, "r") as f:
-            export_data = f.read()
+        # Load export data from either inline JSON or file path.
+        if request.json_content is not None:
+            export_data = request.json_content
+        elif request.json_path is not None:
+            with open(request.json_path, "r") as f:
+                export_data = f.read()
+        else:
+            # Should be unreachable due request model validation.
+            raise ValueError("Either json_content or json_path must be provided")
 
         # Parse export
         messages = SlackClient.parse_export(export_data)
@@ -237,6 +253,13 @@ async def ingest_from_slack_export(request: SlackExportIngestRequest) -> IngestR
                         channel=request.channel_name,
                         source=IncidentSource.SLACK_EXPORT,
                     )
+
+                    # Check if row exists before upsert to track inserts vs updates
+                    check = conn.execute(
+                        "SELECT id FROM incidents WHERE external_id = ? AND source = ?",
+                        (incident.external_id, incident.source.value),
+                    ).fetchone()
+                    existed_before = check is not None
 
                     cursor = conn.execute(
                         """
@@ -264,7 +287,10 @@ async def ingest_from_slack_export(request: SlackExportIngestRequest) -> IngestR
                     )
 
                     if cursor.rowcount > 0:
-                        ingested += 1
+                        if existed_before:
+                            updated += 1
+                        else:
+                            ingested += 1
 
                 except Exception as e:
                     errors.append(f"Failed to normalize thread {thread_ts}: {str(e)}")

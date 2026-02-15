@@ -1,15 +1,37 @@
+import { Suspense, lazy, useState } from "react";
 import { BrowserRouter as Router, Routes, Route, Link, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastContainer } from "./components/Toast";
 import { ToastProvider } from "./contexts/ToastContext";
-import { DashboardPage } from "./pages/DashboardPage";
-import { IncidentsPage } from "./pages/IncidentsPage";
-import { ClustersPage } from "./pages/ClustersPage";
-import { ReportsPage } from "./pages/ReportsPage";
-import { SettingsPage } from "./pages/SettingsPage";
 import { useDarkMode } from "./hooks/useDarkMode";
 import { useToast } from "./hooks/useToast";
+import { resetVault, unlockVault } from "./utils/stronghold";
+
+const DashboardPage = lazy(async () => {
+  const mod = await import("./pages/DashboardPage");
+  return { default: mod.DashboardPage };
+});
+
+const IncidentsPage = lazy(async () => {
+  const mod = await import("./pages/IncidentsPage");
+  return { default: mod.IncidentsPage };
+});
+
+const ClustersPage = lazy(async () => {
+  const mod = await import("./pages/ClustersPage");
+  return { default: mod.ClustersPage };
+});
+
+const ReportsPage = lazy(async () => {
+  const mod = await import("./pages/ReportsPage");
+  return { default: mod.ReportsPage };
+});
+
+const SettingsPage = lazy(async () => {
+  const mod = await import("./pages/SettingsPage");
+  return { default: mod.SettingsPage };
+});
 
 // Create QueryClient instance
 const queryClient = new QueryClient({
@@ -61,14 +83,22 @@ function AppContent() {
 
         {/* Main content */}
         <main className="main-content">
-          <Routes>
-            <Route path="/" element={<Navigate to="/incidents" replace />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/incidents" element={<IncidentsPage />} />
-            <Route path="/clusters" element={<ClustersPage />} />
-            <Route path="/reports" element={<ReportsPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-          </Routes>
+          <Suspense
+            fallback={
+              <div className="route-loading">
+                <p>Loading page...</p>
+              </div>
+            }
+          >
+            <Routes>
+              <Route path="/" element={<Navigate to="/incidents" replace />} />
+              <Route path="/dashboard" element={<DashboardPage />} />
+              <Route path="/incidents" element={<IncidentsPage />} />
+              <Route path="/clusters" element={<ClustersPage />} />
+              <Route path="/reports" element={<ReportsPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+            </Routes>
+          </Suspense>
         </main>
       </div>
 
@@ -178,12 +208,194 @@ function AppContent() {
             background: var(--bg-primary);
             min-height: 100vh;
           }
+
+          .route-loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            color: var(--text-secondary);
+          }
         `}</style>
     </>
   );
 }
 
+function VaultUnlockScreen({ onUnlocked }: { onUnlocked: () => void }) {
+  const [passphrase, setPassphrase] = useState("");
+  const [isUnlocking, setIsUnlocking] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const handleUnlock = async () => {
+    setIsUnlocking(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    try {
+      await unlockVault(passphrase);
+      onUnlocked();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to unlock vault");
+    } finally {
+      setIsUnlocking(false);
+    }
+  };
+
+  const handleReset = async () => {
+    setIsResetting(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    try {
+      await resetVault();
+      setSuccessMessage("Vault was reset. Enter a new passphrase to continue.");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to reset vault");
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
+  return (
+    <div className="vault-screen">
+      <div className="vault-card">
+        <h1>Unlock Credentials Vault</h1>
+        <p>
+          Enter your vault passphrase to access saved Jira and Slack credentials.
+          This passphrase is never hardcoded or stored in source code.
+        </p>
+        <label htmlFor="vault-passphrase">Vault Passphrase</label>
+        <input
+          id="vault-passphrase"
+          type="password"
+          value={passphrase}
+          onChange={(e) => setPassphrase(e.target.value)}
+          placeholder="At least 12 characters"
+        />
+        <div className="vault-actions">
+          <button
+            type="button"
+            onClick={handleUnlock}
+            disabled={isUnlocking || passphrase.trim().length < 12}
+          >
+            {isUnlocking ? "Unlocking..." : "Unlock Vault"}
+          </button>
+          <button type="button" className="danger" onClick={handleReset} disabled={isResetting}>
+            {isResetting ? "Resetting..." : "Reset Vault"}
+          </button>
+        </div>
+        {errorMessage && <div className="vault-error">{errorMessage}</div>}
+        {successMessage && <div className="vault-success">{successMessage}</div>}
+      </div>
+      <style>{`
+        .vault-screen {
+          min-height: 100vh;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 2rem;
+          background: radial-gradient(circle at top, #dbeafe, #f8fafc 55%);
+        }
+
+        .vault-card {
+          width: 100%;
+          max-width: 520px;
+          background: #ffffff;
+          border: 1px solid #dbeafe;
+          border-radius: 12px;
+          padding: 1.5rem;
+          box-shadow: 0 15px 40px rgba(15, 23, 42, 0.12);
+        }
+
+        .vault-card h1 {
+          margin: 0 0 0.75rem 0;
+          font-size: 1.5rem;
+          color: #0f172a;
+        }
+
+        .vault-card p {
+          margin: 0 0 1rem 0;
+          color: #334155;
+          line-height: 1.5;
+        }
+
+        .vault-card label {
+          display: block;
+          margin-bottom: 0.5rem;
+          font-weight: 600;
+          color: #1e293b;
+        }
+
+        .vault-card input {
+          width: 100%;
+          padding: 0.65rem 0.75rem;
+          border: 1px solid #94a3b8;
+          border-radius: 8px;
+          font-size: 0.95rem;
+        }
+
+        .vault-card input:focus {
+          outline: none;
+          border-color: #2563eb;
+          box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+        }
+
+        .vault-actions {
+          display: flex;
+          gap: 0.75rem;
+          margin-top: 1rem;
+        }
+
+        .vault-actions button {
+          border: none;
+          border-radius: 8px;
+          padding: 0.65rem 1rem;
+          font-weight: 600;
+          color: #ffffff;
+          background: #2563eb;
+          cursor: pointer;
+        }
+
+        .vault-actions button:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+        }
+
+        .vault-actions .danger {
+          background: #b91c1c;
+        }
+
+        .vault-error {
+          margin-top: 1rem;
+          padding: 0.7rem;
+          background: #fee2e2;
+          border: 1px solid #ef4444;
+          border-radius: 8px;
+          color: #991b1b;
+          font-size: 0.9rem;
+        }
+
+        .vault-success {
+          margin-top: 1rem;
+          padding: 0.7rem;
+          background: #dcfce7;
+          border: 1px solid #16a34a;
+          border-radius: 8px;
+          color: #166534;
+          font-size: 0.9rem;
+        }
+      `}</style>
+    </div>
+  );
+}
+
 function App() {
+  const [vaultUnlocked, setVaultUnlocked] = useState(false);
+
+  if (!vaultUnlocked) {
+    return <VaultUnlockScreen onUnlocked={() => setVaultUnlocked(true)} />;
+  }
+
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>

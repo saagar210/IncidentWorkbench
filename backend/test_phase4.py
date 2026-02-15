@@ -4,13 +4,21 @@ import base64
 import os
 from io import BytesIO
 from pathlib import Path
+from uuid import uuid4
 
+import pytest
+from fastapi.testclient import TestClient
 from PIL import Image
 
 from database import db
+from exceptions import OllamaUnavailableError
+from main import app
 from models.cluster import ClusterResult
 from models.report import MetricsResult, ReportResult
 from services.docx_generator import DocxGenerator
+from services.ollama_client import OllamaClient
+
+client = TestClient(app)
 
 
 def create_test_png() -> str:
@@ -71,7 +79,7 @@ def test_docx_generation():
     # Create test report
     report = ReportResult(
         report_id="test-report-001",
-        cluster_run_id=1,
+        cluster_run_id="test-run-001",
         title="Q1 2024 Incident Review",
         executive_summary=(
             "During Q1 2024, the engineering team responded to 50 incidents across "
@@ -116,8 +124,6 @@ def test_docx_generation():
     print(f"  File size: {file_size:,} bytes")
     print(f"  Sections: Title, Executive Summary, Metrics, 3 Charts, 3 Clusters")
 
-    return result_path
-
 
 def test_database_migration():
     """Test that the reports table has correct schema."""
@@ -134,7 +140,7 @@ def test_database_migration():
 
         expected_columns = {
             "id": "TEXT",
-            "cluster_run_id": "INTEGER",
+            "cluster_run_id": "TEXT",
             "title": "TEXT",
             "executive_summary": "TEXT",
             "metrics_json": "TEXT",
@@ -155,16 +161,108 @@ def test_database_migration():
         conn.close()
 
 
+def test_report_generation_falls_back_without_ollama(monkeypatch):
+    """Report generation should succeed with deterministic fallback if Ollama is unavailable."""
+    run_id = str(uuid4())
+    external_id = f"phase4-fallback-{run_id}"
+
+    conn = db.get_connection()
+    try:
+        incident_cursor = conn.execute(
+            """
+            INSERT INTO incidents (
+                external_id, source, severity, title, description,
+                occurred_at, resolved_at, raw_data, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                external_id,
+                "slack_export",
+                "SEV2",
+                "Fallback test incident",
+                "Incident seeded for fallback report generation test.",
+                "2024-01-15T10:30:00Z",
+                "2024-01-15T11:00:00Z",
+                '{"seeded": true}',
+                "resolved",
+            ),
+        )
+        incident_id = incident_cursor.lastrowid
+
+        conn.execute(
+            """
+            INSERT INTO cluster_runs (id, n_clusters, method, parameters)
+            VALUES (?, ?, ?, ?)
+            """,
+            (run_id, 1, "manual-test", '{"seeded": true}'),
+        )
+
+        cluster_cursor = conn.execute(
+            """
+            INSERT INTO clusters (run_id, cluster_label, summary, centroid_text)
+            VALUES (?, ?, ?, ?)
+            """,
+            (run_id, 0, "Fallback cluster", "Synthetic cluster for fallback path."),
+        )
+        cluster_id = cluster_cursor.lastrowid
+
+        conn.execute(
+            """
+            INSERT INTO cluster_members (cluster_id, incident_id, distance_to_centroid)
+            VALUES (?, ?, ?)
+            """,
+            (cluster_id, incident_id, 0.0),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    async def mock_generate(*_args, **_kwargs):
+        raise OllamaUnavailableError("mocked unavailable")
+
+    monkeypatch.setattr(OllamaClient, "generate", mock_generate)
+
+    response = client.post(
+        "/reports/generate",
+        json={
+            "cluster_run_id": run_id,
+            "title": "Fallback Report Test",
+            "quarter_label": "Q1 2024",
+            "chart_pngs": {"seed_chart": create_test_png()},
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    report_id = response.json()["report_id"]
+
+    reports = client.get("/reports")
+    assert reports.status_code == 200
+    report = next((r for r in reports.json() if r["report_id"] == report_id), None)
+    assert report is not None
+    assert "generated without Ollama" in report["executive_summary"]
+
+    cleanup_conn = db.get_connection()
+    try:
+        cleanup_conn.execute("DELETE FROM reports WHERE id = ?", (report_id,))
+        cleanup_conn.execute("DELETE FROM cluster_members WHERE cluster_id IN (SELECT id FROM clusters WHERE run_id = ?)", (run_id,))
+        cleanup_conn.execute("DELETE FROM clusters WHERE run_id = ?", (run_id,))
+        cleanup_conn.execute("DELETE FROM cluster_runs WHERE id = ?", (run_id,))
+        cleanup_conn.execute("DELETE FROM incidents WHERE external_id = ? AND source = ?", (external_id, "slack_export"))
+        cleanup_conn.commit()
+    finally:
+        cleanup_conn.close()
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("Phase 4 Testing: LLM Summary & DOCX Export")
     print("=" * 60)
 
     test_database_migration()
-    docx_path = test_docx_generation()
+    test_docx_generation()
 
     print("\n" + "=" * 60)
     print("All tests passed!")
     print("=" * 60)
-    print(f"\nGenerated test report: {docx_path}")
+    print("\nGenerated test report in ~/.incident-workbench/reports/test/test_report.docx")
     print("Open the file in Pages/Word to verify formatting.")

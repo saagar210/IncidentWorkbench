@@ -6,6 +6,19 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig({
   plugins: [react()],
   clearScreen: false,
+  build: {
+    chunkSizeWarningLimit: 700,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "react-vendor": ["react", "react-dom", "react-router-dom"],
+          "query-vendor": ["@tanstack/react-query", "axios", "zustand"],
+          "chart-vendor": ["recharts", "html2canvas"],
+          "tauri-vendor": ["@tauri-apps/api", "@tauri-apps/plugin-shell", "@tauri-apps/plugin-stronghold"],
+        },
+      },
+    },
+  },
   server: {
     port: 1420,
     strictPort: true,

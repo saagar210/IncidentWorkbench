@@ -99,7 +99,7 @@ export function IncidentsPage() {
 
     ingestSlackExport.mutate(
       {
-        zip_path: slackExportJson,
+        json_content: slackExportJson,
         channel_name: slackExportChannel,
       },
       {

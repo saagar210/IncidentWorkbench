@@ -99,6 +99,42 @@ class TestInsufficientData:
 
         assert "at least 2 incidents" in str(exc_info.value)
 
+    def test_auto_mode_requires_three_incidents(self, test_db):
+        """Auto mode should require at least 3 incidents for silhouette scoring."""
+        # Add exactly two incidents with embeddings.
+        for i in range(2):
+            test_db.execute(
+                """
+                INSERT INTO incidents (external_id, source, severity, title, description, occurred_at, raw_data)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    f"AUTO-{i}",
+                    "jira",
+                    "SEV2",
+                    f"Auto incident {i}",
+                    "Description",
+                    "2024-01-01T00:00:00Z",
+                    "{}",
+                ),
+            )
+            incident_id = test_db.execute("SELECT last_insert_rowid()").fetchone()[0]
+            vector = np.random.randn(768).astype(np.float32).tobytes()
+            test_db.execute(
+                """
+                INSERT INTO embeddings (incident_id, embedding, model)
+                VALUES (?, ?, ?)
+                """,
+                (incident_id, vector, "nomic-embed-text"),
+            )
+        test_db.commit()
+
+        clusterer = IncidentClusterer(test_db)
+        with pytest.raises(InsufficientDataError) as exc_info:
+            clusterer.run(num_clusters=None, min_clusters=2, max_clusters=15)
+
+        assert "at least 3 incidents" in str(exc_info.value)
+
 
 class TestClusterSummarizer:
     """Test LLM-based cluster naming."""
