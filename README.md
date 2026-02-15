@@ -93,6 +93,18 @@ This starts:
 npm run test
 ```
 
+### Clean Generated Artifacts
+
+Use this when local build/test artifacts accumulate:
+
+```bash
+# Preview what would be removed
+npm run clean
+
+# Actually remove generated artifacts
+npm run clean:apply
+```
+
 **All tests (recommended):**
 ```bash
 cd backend
