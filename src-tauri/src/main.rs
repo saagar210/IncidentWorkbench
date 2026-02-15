@@ -1,0 +1,66 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+use incident_workbench_lib::{get_backend_port, BackendPort, SidecarProcess};
+use std::sync::Mutex;
+use tauri::Manager;
+
+fn main() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_stronghold::Builder::new(|_| Ok(vec![])).build())
+        .plugin(tauri_plugin_shell::init())
+        .manage(BackendPort(Mutex::new(None)))
+        .manage(SidecarProcess(Mutex::new(None)))
+        .setup(|app| {
+            let backend_port = app.state::<BackendPort>();
+            let sidecar_process = app.state::<SidecarProcess>();
+
+            // Spawn the Python FastAPI sidecar
+            let sidecar_command = app.shell().sidecar("incident-workbench-api")?;
+
+            // In development, the sidecar might not exist yet - that's okay
+            // Production builds will have it bundled
+            match sidecar_command.spawn() {
+                Ok((rx, child)) => {
+                    println!("Sidecar spawned successfully");
+
+                    // TODO: Read port from rx (child.stdout)
+                    // The Python backend prints the port to stdout as first line.
+                    // We should read from rx and parse the port number.
+                    // For now, we use a hardcoded port matching backend/main.py
+                    if let Ok(mut port) = backend_port.0.lock() {
+                        *port = Some(8765);
+                    }
+
+                    // Store child process for cleanup on shutdown
+                    if let Ok(mut proc) = sidecar_process.0.lock() {
+                        *proc = Some(child);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Warning: Could not spawn sidecar: {}. This is expected in development mode.", e);
+
+                    // In dev mode, assume backend is running separately
+                    if let Ok(mut port) = backend_port.0.lock() {
+                        *port = Some(8765);
+                    }
+                }
+            }
+
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                // Clean up sidecar process on window close
+                if let Some(sidecar_state) = window.try_state::<SidecarProcess>() {
+                    if let Ok(mut proc) = sidecar_state.0.lock() {
+                        if let Some(mut child) = proc.take() {
+                            let _ = child.kill();
+                        }
+                    }
+                }
+            }
+        })
+        .invoke_handler(tauri::generate_handler![get_backend_port])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}

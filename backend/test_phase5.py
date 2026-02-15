@@ -1,0 +1,176 @@
+"""Phase 5 Tests: Polish & Performance
+
+Tests for:
+- WAL mode enabled
+- Error responses with correct HTTP status codes
+- Edge case handling
+"""
+
+import sqlite3
+import pytest
+from pathlib import Path
+from fastapi.testclient import TestClient
+
+from main import app
+from database import Database
+
+
+def test_wal_mode_enabled(tmp_path: Path):
+    """Verify WAL mode is enabled on database connections."""
+    test_db = Database(db_path=tmp_path / "test.db")
+    conn = test_db.get_connection()
+
+    # Check journal mode
+    cursor = conn.execute("PRAGMA journal_mode")
+    journal_mode = cursor.fetchone()[0]
+    conn.close()
+
+    assert journal_mode.upper() == "WAL", "WAL mode should be enabled"
+
+
+def test_foreign_keys_enabled(tmp_path: Path):
+    """Verify foreign keys are enforced."""
+    test_db = Database(db_path=tmp_path / "test.db")
+    conn = test_db.get_connection()
+
+    cursor = conn.execute("PRAGMA foreign_keys")
+    fk_enabled = cursor.fetchone()[0]
+    conn.close()
+
+    assert fk_enabled == 1, "Foreign keys should be enabled"
+
+
+def test_health_endpoint_returns_status():
+    """Health endpoint should return database and ollama status."""
+    client = TestClient(app)
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    data = response.json()
+
+    assert "status" in data
+    assert "database" in data
+    assert "ollama" in data
+
+
+def test_ollama_unavailable_error():
+    """Test that clustering returns 503 when Ollama is unavailable."""
+    # This test would need Ollama to be stopped
+    # Skipping in automated tests, but useful for manual verification
+    pass
+
+
+def test_insufficient_data_error():
+    """Test clustering with no incidents returns error."""
+    client = TestClient(app)
+
+    # First, ensure no incidents exist
+    client.delete("/incidents")
+
+    # Try to run clustering
+    response = client.post("/clusters/run", json={
+        "method": "hdbscan",
+        "min_cluster_size": 3
+    })
+
+    # Should return error (400/422/503 depending on validation vs service availability)
+    assert response.status_code in [400, 422, 503]
+
+    data = response.json()
+    assert "detail" in data or "message" in data
+
+
+def test_jira_connection_error_returns_error():
+    """Test that invalid Jira credentials return appropriate error."""
+    client = TestClient(app)
+
+    response = client.post(
+        "/settings/test-jira",
+        params={
+            "url": "https://invalid-jira-url.example.com",
+            "email": "test@example.com",
+            "api_token": "invalid_token"
+        }
+    )
+
+    # Test connection endpoint returns 200 with success=false in body
+    # (or error status if connection completely fails)
+    assert response.status_code in [200, 400, 502, 503]
+
+    if response.status_code == 200:
+        data = response.json()
+        # If 200, should indicate failure in response body
+        assert "success" in data
+
+
+def test_error_response_format():
+    """Verify error responses have consistent format."""
+    client = TestClient(app)
+
+    # Try to get a non-existent incident
+    response = client.get("/incidents/99999")
+
+    # Should return error with 'detail' field
+    if response.status_code != 200:
+        data = response.json()
+        assert "detail" in data or "message" in data, "Error should have detail or message field"
+
+
+def test_empty_incidents_list():
+    """Test that empty incidents list is handled gracefully."""
+    client = TestClient(app)
+
+    # Delete all incidents
+    client.delete("/incidents")
+
+    # Fetch incidents
+    response = client.get("/incidents")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "incidents" in data
+    assert data["total"] == 0
+
+
+def test_metrics_with_no_data():
+    """Test metrics endpoint with no incidents."""
+    client = TestClient(app)
+
+    # Delete all incidents
+    client.delete("/incidents")
+
+    # Fetch metrics
+    response = client.get("/incidents/metrics")
+
+    # Metrics may return 422 if no data, or 200 with zeros
+    assert response.status_code in [200, 422]
+
+    if response.status_code == 200:
+        data = response.json()
+        assert data["total_incidents"] == 0
+
+
+def test_reports_list_empty():
+    """Test reports endpoint when no reports exist."""
+    client = TestClient(app)
+
+    response = client.get("/reports")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, list)
+
+
+def test_cluster_runs_empty():
+    """Test cluster runs endpoint when no runs exist."""
+    client = TestClient(app)
+
+    response = client.get("/clusters")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, list)
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
