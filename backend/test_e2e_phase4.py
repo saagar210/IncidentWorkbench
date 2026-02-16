@@ -114,6 +114,44 @@ def _seed_cluster_run_if_missing() -> str:
         conn.close()
 
 
+def _ensure_test_admin() -> tuple[str, str]:
+    """Seed deterministic E2E admin credentials in local SQLite."""
+    username = "test-admin"
+    password = "test-only-password"
+    db_path = Path.home() / ".incident-workbench" / "incidents.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
+        from security.auth import hash_password
+
+        password_hash = hash_password(password)
+        if row is None:
+            conn.execute(
+                """
+                INSERT INTO users (username, password_hash, roles)
+                VALUES (?, ?, ?)
+                """,
+                (username, password_hash, '["admin"]'),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE users
+                SET password_hash = ?, roles = ?
+                WHERE id = ?
+                """,
+                (password_hash, '["admin"]', row["id"]),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return username, password
+
+
 @pytest.mark.skipif(
     not RUN_E2E,
     reason="Set RUN_E2E_PHASE4=1 and start backend on 127.0.0.1:8765 to run this test",
@@ -136,10 +174,11 @@ def test_e2e_report_generation():
     print(f"   ✓ Backend is healthy: {health['status']}")
     print(f"   Database: {health['database']}")
 
-    # Auth bootstrap for privileged report generation endpoint.
+    # Seed deterministic admin credentials for privileged endpoint tests.
+    username, password = _ensure_test_admin()
     login_response = session.post(
         f"{BASE_URL}/auth/login",
-        json={"username": "admin", "password": "admin-dev-change-me"},
+        json={"username": username, "password": password},
         timeout=20,
     )
     assert login_response.status_code == 200, f"Auth login failed: {login_response.text}"

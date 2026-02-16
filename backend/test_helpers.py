@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi.testclient import TestClient
 
-from config import settings
 from database import db
-from security.auth import ensure_bootstrap_admin
+from security.auth import ensure_bootstrap_admin, hash_password
 from security.settings import CSRF_COOKIE_NAME, CSRF_HEADER_NAME
 
 _auth_prereqs_ready = False
+TEST_ADMIN_USERNAME = "test-admin"
+TEST_ADMIN_PASSWORD = "test-only-password"
 
 
 def _ensure_auth_prereqs() -> None:
@@ -20,7 +23,40 @@ def _ensure_auth_prereqs() -> None:
 
     db.run_migrations()
     ensure_bootstrap_admin()
+    _seed_test_admin()
     _auth_prereqs_ready = True
+
+
+def _seed_test_admin() -> None:
+    """Ensure deterministic admin credentials exist for tests."""
+    conn = db.get_connection()
+    try:
+        row = conn.execute(
+            "SELECT id FROM users WHERE username = ?",
+            (TEST_ADMIN_USERNAME,),
+        ).fetchone()
+        password_hash = hash_password(TEST_ADMIN_PASSWORD)
+        roles = json.dumps(["admin"])
+        if row is None:
+            conn.execute(
+                """
+                INSERT INTO users (username, password_hash, roles)
+                VALUES (?, ?, ?)
+                """,
+                (TEST_ADMIN_USERNAME, password_hash, roles),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE users
+                SET password_hash = ?, roles = ?
+                WHERE id = ?
+                """,
+                (password_hash, roles, row["id"]),
+            )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def login_admin(client: TestClient) -> dict[str, str]:
@@ -34,8 +70,8 @@ def login_admin(client: TestClient) -> dict[str, str]:
     response = client.post(
         "/auth/login",
         json={
-            "username": settings.bootstrap_admin_username,
-            "password": settings.bootstrap_admin_password,
+            "username": TEST_ADMIN_USERNAME,
+            "password": TEST_ADMIN_PASSWORD,
         },
         headers=login_headers,
     )

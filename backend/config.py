@@ -13,8 +13,8 @@ class Settings(BaseSettings):
     webhook_secret: str = "dev-webhook-secret"
     webhook_max_attempts: int = 5
     auth_enabled: bool = True
-    bootstrap_admin_username: str = "admin"
-    bootstrap_admin_password: str = "admin-dev-change-me"
+    bootstrap_admin_username: str = ""
+    bootstrap_admin_password: str = ""
 
     model_config = {
         "env_prefix": "WORKBENCH_",
