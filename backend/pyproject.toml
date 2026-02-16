@@ -26,7 +26,7 @@ dev = [
     "mypy>=1.13.0",
     "schemathesis>=3.39.0",
     "pip-audit>=2.7.0",
-    "semgrep>=1.96.0",
+    "semgrep>=1.151.0",
 ]
 
 [tool.setuptools]
