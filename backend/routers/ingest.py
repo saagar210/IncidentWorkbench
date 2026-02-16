@@ -7,6 +7,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
 
+from config import settings
 from database import db
 from exceptions import JiraConnectionError, JiraQueryError, SlackAPIError
 from models.api import (
@@ -23,6 +24,26 @@ from services.slack_client import SlackClient
 
 router = APIRouter(prefix="/ingest", tags=["ingest"])
 AdminUser = Annotated[AuthUser, Depends(require_roles_dependency({"admin"}))]
+
+
+def _resolve_safe_export_path(raw_path: str) -> Path:
+    """Restrict json_path ingestion to a configured safe directory."""
+    json_file = Path(raw_path).expanduser().resolve()
+    if json_file.suffix.lower() != ".json":
+        raise ValueError("json_path must reference a .json file")
+
+    allowed_root = settings.slack_export_dir.expanduser().resolve()
+    try:
+        json_file.relative_to(allowed_root)
+    except ValueError as exc:
+        raise ValueError(
+            f"json_path must stay under the configured import directory: {allowed_root}"
+        ) from exc
+
+    if not json_file.is_file():
+        raise ValueError("json_path does not exist")
+
+    return json_file
 
 
 @router.post("/jira")
@@ -242,9 +263,7 @@ async def ingest_from_slack_export(
         if request.json_content is not None:
             export_data = request.json_content
         elif request.json_path is not None:
-            json_file = Path(request.json_path).expanduser().resolve()
-            if json_file.suffix.lower() != ".json":
-                raise ValueError("json_path must reference a .json file")
+            json_file = _resolve_safe_export_path(request.json_path)
             export_data = json_file.read_text(encoding="utf-8")
         else:
             # Should be unreachable due request model validation.

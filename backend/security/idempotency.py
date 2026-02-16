@@ -38,34 +38,27 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
 
         existing = self._get_existing_record(idempotency_key, route)
         if existing is not None:
-            existing_hash, response_code, response_body = existing
-
-            if existing_hash != request_hash:
-                return problem_response(
-                    status=409,
-                    title="Conflict",
-                    detail="Idempotency-Key was reused with a different request payload.",
-                    type_="https://incident-workbench.dev/problems/idempotency-conflict",
-                    instance=route,
-                    request_id=getattr(request.state, "request_id", None),
-                    trace_id=getattr(request.state, "trace_id", None),
-                )
-
-            if response_code is not None and response_body:
-                try:
-                    content = json.loads(response_body)
-                except json.JSONDecodeError:
-                    content = {"detail": "Stored idempotent response was not valid JSON."}
-
-                replay = Response(
-                    content=json.dumps(content),
-                    status_code=response_code,
-                    media_type="application/json",
-                )
-                replay.headers["Idempotency-Replayed"] = "true"
-                return replay
+            replay_or_error = self._replay_or_reject_existing(
+                request=request,
+                route=route,
+                request_hash=request_hash,
+                existing=existing,
+            )
+            if replay_or_error is not None:
+                return replay_or_error
         else:
-            self._create_pending_record(idempotency_key, route, request_hash)
+            created = self._create_pending_record(idempotency_key, route, request_hash)
+            if not created:
+                existing_after_race = self._get_existing_record(idempotency_key, route)
+                if existing_after_race is not None:
+                    replay_or_error = self._replay_or_reject_existing(
+                        request=request,
+                        route=route,
+                        request_hash=request_hash,
+                        existing=existing_after_race,
+                    )
+                    if replay_or_error is not None:
+                        return replay_or_error
 
         async def receive():
             return {"type": "http.request", "body": body, "more_body": False}
@@ -102,14 +95,15 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
         finally:
             conn.close()
 
-    def _create_pending_record(self, key: str, route: str, request_hash: str) -> None:
+    def _create_pending_record(self, key: str, route: str, request_hash: str) -> bool:
         conn = db.get_connection()
         try:
-            conn.execute(
+            cursor = conn.execute(
                 "INSERT OR IGNORE INTO idempotency_keys (key, route, request_hash) VALUES (?, ?, ?)",
                 (key, route, request_hash),
             )
             conn.commit()
+            return cursor.rowcount > 0
         finally:
             conn.close()
 
@@ -125,6 +119,54 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
             conn.commit()
         finally:
             conn.close()
+
+    def _replay_or_reject_existing(
+        self,
+        *,
+        request: Request,
+        route: str,
+        request_hash: str,
+        existing: tuple[str, int | None, str | None],
+    ) -> Response | None:
+        existing_hash, response_code, response_body = existing
+
+        if existing_hash != request_hash:
+            return problem_response(
+                status=409,
+                title="Conflict",
+                detail="Idempotency-Key was reused with a different request payload.",
+                type_="https://incident-workbench.dev/problems/idempotency-conflict",
+                instance=route,
+                request_id=getattr(request.state, "request_id", None),
+                trace_id=getattr(request.state, "trace_id", None),
+            )
+
+        if response_code is None:
+            return problem_response(
+                status=409,
+                title="Conflict",
+                detail="A request with the same Idempotency-Key is still processing.",
+                type_="https://incident-workbench.dev/problems/idempotency-in-progress",
+                instance=route,
+                request_id=getattr(request.state, "request_id", None),
+                trace_id=getattr(request.state, "trace_id", None),
+            )
+
+        if response_body is None:
+            return None
+
+        try:
+            content = json.loads(response_body)
+        except json.JSONDecodeError:
+            content = {"detail": "Stored idempotent response was not valid JSON."}
+
+        replay = Response(
+            content=json.dumps(content),
+            status_code=response_code,
+            media_type="application/json",
+        )
+        replay.headers["Idempotency-Replayed"] = "true"
+        return replay
 
 
 async def _capture_response_body(response: Response) -> tuple[Response, str | None]:

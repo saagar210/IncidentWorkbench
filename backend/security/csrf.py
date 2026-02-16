@@ -7,9 +7,9 @@ from starlette.requests import Request
 
 from api.problem import problem_response
 from security.settings import (
-    CSRF_COOKIE_NAME,
     CSRF_HEADER_NAME,
-    SESSION_COOKIE_NAME,
+    csrf_cookie_name_candidates,
+    session_cookie_name_candidates,
     trusted_origins,
 )
 
@@ -24,7 +24,10 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # Only enforce CSRF when a browser session cookie is present.
-        if SESSION_COOKIE_NAME not in request.cookies:
+        session_cookie_present = any(
+            request.cookies.get(cookie_name) for cookie_name in session_cookie_name_candidates()
+        )
+        if not session_cookie_present:
             return await call_next(request)
 
         origin = request.headers.get("origin")
@@ -39,7 +42,14 @@ class CSRFMiddleware(BaseHTTPMiddleware):
                 trace_id=getattr(request.state, "trace_id", None),
             )
 
-        csrf_cookie = request.cookies.get(CSRF_COOKIE_NAME)
+        csrf_cookie = next(
+            (
+                request.cookies.get(cookie_name)
+                for cookie_name in csrf_cookie_name_candidates()
+                if request.cookies.get(cookie_name)
+            ),
+            None,
+        )
         csrf_header = request.headers.get(CSRF_HEADER_NAME)
         if not csrf_cookie or not csrf_header or csrf_cookie != csrf_header:
             return problem_response(

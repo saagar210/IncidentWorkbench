@@ -8,11 +8,19 @@ from fastapi.testclient import TestClient
 
 from database import db
 from security.auth import ensure_bootstrap_admin, hash_password
-from security.settings import CSRF_COOKIE_NAME, CSRF_HEADER_NAME
+from security.settings import CSRF_HEADER_NAME, csrf_cookie_name_candidates
 
 _auth_prereqs_ready = False
 TEST_ADMIN_USERNAME = "test-admin"
 TEST_ADMIN_PASSWORD = "test-only-password"
+
+
+def _first_cookie_value(client: TestClient, names: tuple[str, ...]) -> str | None:
+    for name in names:
+        value = client.cookies.get(name)
+        if value:
+            return value
+    return None
 
 
 def _ensure_auth_prereqs() -> None:
@@ -63,7 +71,7 @@ def login_admin(client: TestClient) -> dict[str, str]:
     """Authenticate test client as bootstrap admin and return CSRF headers."""
     _ensure_auth_prereqs()
     login_headers: dict[str, str] = {}
-    existing_csrf = client.cookies.get(CSRF_COOKIE_NAME)
+    existing_csrf = _first_cookie_value(client, csrf_cookie_name_candidates())
     if existing_csrf:
         login_headers[CSRF_HEADER_NAME] = existing_csrf
 
@@ -77,6 +85,12 @@ def login_admin(client: TestClient) -> dict[str, str]:
     )
     assert response.status_code == 200, response.text
 
-    csrf_token = response.cookies.get(CSRF_COOKIE_NAME) or client.cookies.get(CSRF_COOKIE_NAME)
+    csrf_token = _first_cookie_value(client, csrf_cookie_name_candidates())
+    if csrf_token is None:
+        for name in csrf_cookie_name_candidates():
+            cookie = response.cookies.get(name)
+            if cookie:
+                csrf_token = cookie
+                break
     assert csrf_token is not None
     return {"X-CSRF-Token": csrf_token}

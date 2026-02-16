@@ -18,6 +18,7 @@ while IFS= read -r cmd; do
   echo "==> $cmd"
   (
     cd "$REPO_ROOT"
+    # Trusted input: `.codex/verify.commands` is version-controlled alongside source.
     eval "$cmd"
   )
 done < .codex/verify.commands

@@ -10,21 +10,41 @@ from database import db
 from models.api import IncidentListResponse, IncidentResponse
 from models.incident import Incident, IncidentSource, Severity
 from models.report import MetricsResult
-from security.auth import AuthUser, require_roles_dependency
+from security.auth import AuthUser, get_current_user, require_roles_dependency
 from services.metrics import MetricsCalculator
 
 router = APIRouter(prefix="/incidents", tags=["incidents"])
+AuthenticatedUser = Annotated[AuthUser, Depends(get_current_user)]
 AdminUser = Annotated[AuthUser, Depends(require_roles_dependency({"admin"}))]
 
+AUTH_401_RESPONSE = {
+    "description": "Authentication required.",
+    "content": {
+        "application/problem+json": {
+            "schema": {"$ref": "#/components/schemas/ProblemDetails"},
+        }
+    },
+}
+AUTH_403_RESPONSE = {
+    "description": "Forbidden.",
+    "content": {
+        "application/problem+json": {
+            "schema": {"$ref": "#/components/schemas/ProblemDetails"},
+        }
+    },
+}
 
-@router.get("")
+
+@router.get("", responses={401: AUTH_401_RESPONSE})
 async def list_incidents(
+    current_user: AuthenticatedUser,
     source: IncidentSource | None = None,
     severity: Severity | None = None,
     offset: Annotated[int, Query(ge=0, le=9_223_372_036_854_775_807)] = 0,
     limit: Annotated[int, Query(ge=1, le=1_000)] = 100,
 ) -> IncidentListResponse:
     """List all incidents with optional filters."""
+    del current_user
     conn = db.get_connection()
     try:
         # Build query with filters
@@ -90,12 +110,14 @@ async def list_incidents(
         conn.close()
 
 
-@router.get("/metrics", response_model=MetricsResult)
+@router.get("/metrics", response_model=MetricsResult, responses={401: AUTH_401_RESPONSE})
 async def get_metrics(
+    current_user: AuthenticatedUser,
     source: IncidentSource | None = None,
     severity: Severity | None = None,
 ) -> MetricsResult:
     """Calculate metrics for all or filtered incidents."""
+    del current_user
     conn = db.get_connection()
     try:
         calc = MetricsCalculator(conn)
@@ -124,11 +146,16 @@ async def get_metrics(
         conn.close()
 
 
-@router.get("/{incident_id}", responses={404: {"description": "Incident not found"}})
+@router.get(
+    "/{incident_id}",
+    responses={401: AUTH_401_RESPONSE, 404: {"description": "Incident not found"}},
+)
 async def get_incident(
+    current_user: AuthenticatedUser,
     incident_id: Annotated[int, Path(ge=1, le=9_223_372_036_854_775_807)],
 ) -> IncidentResponse:
     """Get a specific incident by ID."""
+    del current_user
     conn = db.get_connection()
     try:
         cursor = conn.execute("SELECT * FROM incidents WHERE id = ?", (incident_id,))
@@ -155,7 +182,7 @@ async def get_incident(
         conn.close()
 
 
-@router.delete("")
+@router.delete("", responses={401: AUTH_401_RESPONSE, 403: AUTH_403_RESPONSE})
 async def delete_all_incidents(current_user: AdminUser) -> dict:
     """Delete all incidents from the database."""
     del current_user

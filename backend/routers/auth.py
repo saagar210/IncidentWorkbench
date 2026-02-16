@@ -14,8 +14,8 @@ from security.auth import (
     create_session,
     get_current_user,
     revoke_session_by_token,
+    session_token_from_request,
 )
-from security.settings import SESSION_COOKIE_NAME
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -44,7 +44,7 @@ async def logout(
 ) -> dict[str, str]:
     """Revoke the current session and clear auth cookies."""
     del current_user
-    session_token = request.cookies.get(SESSION_COOKIE_NAME)
+    session_token = session_token_from_request(request)
     revoke_session_by_token(session_token)
     clear_auth_cookies(response=response, request_scheme=request.url.scheme)
     return {"status": "logged_out"}

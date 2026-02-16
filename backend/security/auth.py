@@ -18,11 +18,16 @@ from database import db
 from security.rbac import require_role
 from security.settings import (
     CSRF_COOKIE_NAME,
+    INSECURE_CSRF_COOKIE_NAME,
+    INSECURE_SESSION_COOKIE_NAME,
     SESSION_COOKIE_HTTPONLY,
     SESSION_COOKIE_NAME,
     SESSION_COOKIE_SAMESITE,
     SESSION_TTL_SECONDS,
+    active_cookie_names,
     cookie_secure_for_scheme,
+    csrf_cookie_name_candidates,
+    session_cookie_name_candidates,
 )
 
 
@@ -50,7 +55,7 @@ def _encode_password_hash(*, password: str, salt: bytes, iterations: int) -> str
     return f"pbkdf2_sha256${iterations}${encoded_salt}${encoded_digest}"
 
 
-def hash_password(password: str, *, iterations: int = 390_000) -> str:
+def hash_password(password: str, *, iterations: int = 600_000) -> str:
     salt = secrets.token_bytes(16)
     return _encode_password_hash(password=password, salt=salt, iterations=iterations)
 
@@ -136,8 +141,9 @@ def create_session(*, response: Response, user_id: int, request_scheme: str) -> 
         conn.close()
 
     secure_cookie = cookie_secure_for_scheme(request_scheme)
+    session_cookie_name, csrf_cookie_name = active_cookie_names(request_scheme)
     response.set_cookie(
-        key=SESSION_COOKIE_NAME,
+        key=session_cookie_name,
         value=token,
         secure=secure_cookie,
         httponly=SESSION_COOKIE_HTTPONLY,
@@ -146,7 +152,7 @@ def create_session(*, response: Response, user_id: int, request_scheme: str) -> 
         path="/",
     )
     response.set_cookie(
-        key=CSRF_COOKIE_NAME,
+        key=csrf_cookie_name,
         value=csrf_token,
         secure=secure_cookie,
         httponly=False,
@@ -178,28 +184,58 @@ def revoke_session_by_token(token: str | None) -> None:
 
 
 def clear_auth_cookies(*, response: Response, request_scheme: str) -> None:
-    secure_cookie = cookie_secure_for_scheme(request_scheme)
+    del request_scheme
     response.delete_cookie(
         key=SESSION_COOKIE_NAME,
         path="/",
-        secure=secure_cookie,
+        secure=True,
         httponly=SESSION_COOKIE_HTTPONLY,
         samesite=SESSION_COOKIE_SAMESITE,
     )
     response.delete_cookie(
         key=CSRF_COOKIE_NAME,
         path="/",
-        secure=secure_cookie,
+        secure=True,
         httponly=False,
         samesite=SESSION_COOKIE_SAMESITE,
     )
+    response.delete_cookie(
+        key=INSECURE_SESSION_COOKIE_NAME,
+        path="/",
+        secure=False,
+        httponly=SESSION_COOKIE_HTTPONLY,
+        samesite=SESSION_COOKIE_SAMESITE,
+    )
+    response.delete_cookie(
+        key=INSECURE_CSRF_COOKIE_NAME,
+        path="/",
+        secure=False,
+        httponly=False,
+        samesite=SESSION_COOKIE_SAMESITE,
+    )
+
+
+def session_token_from_request(request: Request) -> str | None:
+    for cookie_name in session_cookie_name_candidates():
+        token = request.cookies.get(cookie_name)
+        if token:
+            return token
+    return None
+
+
+def csrf_token_from_request(request: Request) -> str | None:
+    for cookie_name in csrf_cookie_name_candidates():
+        token = request.cookies.get(cookie_name)
+        if token:
+            return token
+    return None
 
 
 def get_current_user(request: Request) -> AuthUser:
     if not settings.auth_enabled:
         return AuthUser(user_id=0, username="auth-disabled", roles={"admin"})
 
-    token = request.cookies.get(SESSION_COOKIE_NAME)
+    token = session_token_from_request(request)
     if not token:
         raise HTTPException(status_code=401, detail="Authentication required")
 

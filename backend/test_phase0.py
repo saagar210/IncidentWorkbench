@@ -62,7 +62,7 @@ def test_list_incidents():
     headers = login_admin(client)
     client.delete("/incidents", headers=headers)
 
-    response = client.get("/incidents")
+    response = client.get("/incidents", headers=headers)
     assert response.status_code == 200
     data = response.json()
     assert "incidents" in data

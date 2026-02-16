@@ -6,12 +6,13 @@ Tests for:
 - Edge case handling
 """
 
+import hashlib
 import sqlite3
 import pytest
 from pathlib import Path
 from fastapi.testclient import TestClient
 
-from database import Database
+from database import Database, db
 from main import app
 from test_helpers import login_admin
 
@@ -113,9 +114,10 @@ def test_jira_connection_error_returns_error():
 def test_error_response_format():
     """Verify error responses have consistent format."""
     client = TestClient(app)
+    headers = login_admin(client)
 
     # Try to get a non-existent incident
-    response = client.get("/incidents/99999")
+    response = client.get("/incidents/99999", headers=headers)
 
     # Should return error with 'detail' field
     if response.status_code != 200:
@@ -126,8 +128,9 @@ def test_error_response_format():
 def test_problem_details_shape_for_404():
     """Non-2xx errors should expose RFC 9457-style fields."""
     client = TestClient(app)
+    headers = login_admin(client)
 
-    response = client.get("/incidents/99999")
+    response = client.get("/incidents/99999", headers=headers)
     assert response.status_code == 404
     assert response.headers["content-type"].startswith("application/problem+json")
 
@@ -178,6 +181,35 @@ def test_idempotency_replays_write_response():
     assert second.headers.get("Idempotency-Replayed") == "true"
 
 
+def test_idempotency_blocks_duplicate_while_first_request_pending():
+    """A second request with a pending key should be rejected, not executed twice."""
+    client = TestClient(app)
+    headers = login_admin(client)
+
+    key = "idem-pending-1"
+    route = "/incidents"
+    request_hash = hashlib.sha256(b"").hexdigest()
+
+    conn = db.get_connection()
+    try:
+        conn.execute("DELETE FROM idempotency_keys WHERE key = ? AND route = ?", (key, route))
+        conn.execute(
+            """
+            INSERT INTO idempotency_keys (key, route, request_hash, response_code, response_body)
+            VALUES (?, ?, ?, NULL, NULL)
+            """,
+            (key, route, request_hash),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    response = client.delete("/incidents", headers={**headers, "Idempotency-Key": key})
+    assert response.status_code == 409
+    payload = response.json()
+    assert payload["type"].endswith("/idempotency-in-progress")
+
+
 def test_empty_incidents_list():
     """Test that empty incidents list is handled gracefully."""
     client = TestClient(app)
@@ -187,7 +219,7 @@ def test_empty_incidents_list():
     client.delete("/incidents", headers=headers)
 
     # Fetch incidents
-    response = client.get("/incidents")
+    response = client.get("/incidents", headers=headers)
 
     assert response.status_code == 200
     data = response.json()
@@ -204,7 +236,7 @@ def test_metrics_with_no_data():
     client.delete("/incidents", headers=headers)
 
     # Fetch metrics
-    response = client.get("/incidents/metrics")
+    response = client.get("/incidents/metrics", headers=headers)
 
     # Metrics may return 422 if no data, or 200 with zeros
     assert response.status_code in [200, 422]

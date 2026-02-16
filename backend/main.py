@@ -12,12 +12,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 
 from api.problem import problem_response
+from config import settings as app_settings
 from database import db
 from exceptions import WorkbenchError
 from observability.bootstrap import setup_observability
 from observability.logging import configure_structured_logging
 from observability.middleware import RequestContextMiddleware
-from routers import auth, clusters, health, incidents, ingest, reports, settings, webhooks
+from routers import auth, clusters, health, incidents, ingest, reports, webhooks
+from routers import settings as settings_router
 from security.auth import ensure_bootstrap_admin
 from security.csrf import CSRFMiddleware
 from security.idempotency import IdempotencyMiddleware
@@ -143,6 +145,7 @@ def _prune_unused_component_schemas(schema: dict) -> None:
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     configure_structured_logging()
+    app_settings.validate_security()
     logger.info("running database migrations")
     db.run_migrations()
     ensure_bootstrap_admin()
@@ -314,19 +317,13 @@ async def workbench_exception_handler(request: Request, exc: WorkbenchError):
         title="Workbench Error",
         detail=exc.message,
         type_="https://incident-workbench.dev/problems/workbench-error",
-        extras={
-            "error_type": exc.__class__.__name__,
-            "details": exc.details,
-        },
+        extras={"error_type": exc.__class__.__name__},
     )
 
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     detail = exc.detail if isinstance(exc.detail, str) else "Request failed"
-    extras: dict[str, object] = {}
-    if not isinstance(exc.detail, str):
-        extras["details"] = exc.detail
 
     return _problem(
         request,
@@ -334,19 +331,18 @@ async def http_exception_handler(request: Request, exc: HTTPException):
         title="Request Error",
         detail=detail,
         type_="about:blank",
-        extras=extras or None,
     )
 
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    del exc
     return _problem(
         request,
         status=422,
         title="Validation Error",
         detail="Request validation failed.",
         type_="https://incident-workbench.dev/problems/validation",
-        extras={"errors": exc.errors()},
     )
 
 
@@ -371,7 +367,7 @@ def _mount_api_router(router) -> None:
 for api_router in (
     auth.router,
     health.router,
-    settings.router,
+    settings_router.router,
     ingest.router,
     incidents.router,
     clusters.router,

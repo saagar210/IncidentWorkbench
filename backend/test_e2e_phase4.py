@@ -182,7 +182,7 @@ def test_e2e_report_generation():
         timeout=20,
     )
     assert login_response.status_code == 200, f"Auth login failed: {login_response.text}"
-    csrf_token = session.cookies.get("__Host-csrf")
+    csrf_token = session.cookies.get("__Host-csrf") or session.cookies.get("workbench-csrf")
     assert csrf_token, "CSRF cookie missing after login"
 
     # Step 2: Get cluster runs
