@@ -22,13 +22,48 @@ dev = [
     "pyinstaller>=6.0.0",
     "requests>=2.32.0",
     "Pillow>=10.0.0",
+    "ruff>=0.9.0",
+    "mypy>=1.13.0",
+    "schemathesis>=3.39.0",
+    "pip-audit>=2.7.0",
+    "semgrep>=1.96.0",
 ]
 
 [tool.setuptools]
 py-modules = []
 
 [tool.setuptools.packages.find]
-include = ["models*", "routers*", "services*"]
+include = ["models*", "routers*", "services*", "api*", "clients*", "security*", "observability*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "S"]
+ignore = ["S101", "E501", "B904", "B905", "S105", "S106", "S113", "S311", "S608"]
+
+[tool.ruff.lint.per-file-ignores]
+"test_*.py" = ["F401", "I001", "S105", "S106", "S113", "F541"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = false
+check_untyped_defs = true
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+[tool.pytest.ini_options]
+addopts = "-q --strict-markers --maxfail=1 -W ignore::DeprecationWarning:schemathesis"
+markers = [
+    "unit: fast isolated tests",
+    "integration: db/queue/http integration",
+    "contract: schema/consumer/provider contract checks",
+]
+testpaths = [
+    ".",
+]
 
 [build-system]
 requires = ["setuptools>=68.0"]

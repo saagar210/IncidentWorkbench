@@ -5,10 +5,10 @@ from io import BytesIO
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Inches, Pt
+from docx.shared import Inches
 
 from models.cluster import ClusterResult
-from models.report import MetricsResult, ReportResult
+from models.report import ReportResult
 
 
 class DocxGenerator:
@@ -61,30 +61,22 @@ class DocxGenerator:
 
         table.rows[1].cells[0].text = "Mean Resolution Time (hours)"
         table.rows[1].cells[1].text = (
-            f"{metrics.mean_resolution_hours:.1f}"
-            if metrics.mean_resolution_hours
-            else "N/A"
+            f"{metrics.mean_resolution_hours:.1f}" if metrics.mean_resolution_hours else "N/A"
         )
 
         table.rows[2].cells[0].text = "Median Resolution Time (hours)"
         table.rows[2].cells[1].text = (
-            f"{metrics.median_resolution_hours:.1f}"
-            if metrics.median_resolution_hours
-            else "N/A"
+            f"{metrics.median_resolution_hours:.1f}" if metrics.median_resolution_hours else "N/A"
         )
 
         table.rows[3].cells[0].text = "P50 Resolution Time (hours)"
         table.rows[3].cells[1].text = (
-            f"{metrics.p50_resolution_hours:.1f}"
-            if metrics.p50_resolution_hours
-            else "N/A"
+            f"{metrics.p50_resolution_hours:.1f}" if metrics.p50_resolution_hours else "N/A"
         )
 
         table.rows[4].cells[0].text = "P90 Resolution Time (hours)"
         table.rows[4].cells[1].text = (
-            f"{metrics.p90_resolution_hours:.1f}"
-            if metrics.p90_resolution_hours
-            else "N/A"
+            f"{metrics.p90_resolution_hours:.1f}" if metrics.p90_resolution_hours else "N/A"
         )
 
         table.rows[5].cells[0].text = "SEV1 Incidents"
@@ -94,9 +86,7 @@ class DocxGenerator:
         table.rows[6].cells[1].text = str(metrics.sev2_count)
 
         table.rows[7].cells[0].text = "SEV3/4 Incidents"
-        table.rows[7].cells[1].text = str(
-            metrics.sev3_count + metrics.sev4_count
-        )
+        table.rows[7].cells[1].text = str(metrics.sev3_count + metrics.sev4_count)
 
         doc.add_page_break()
 
@@ -105,11 +95,7 @@ class DocxGenerator:
             doc.add_heading("Charts", level=1)
             for chart_name, b64_png in chart_pngs.items():
                 # Format chart name nicely
-                formatted_name = (
-                    chart_name.replace("_", " ")
-                    .replace("-", " ")
-                    .title()
-                )
+                formatted_name = chart_name.replace("_", " ").replace("-", " ").title()
                 doc.add_heading(formatted_name, level=2)
 
                 try:
@@ -118,10 +104,11 @@ class DocxGenerator:
                     doc.add_picture(BytesIO(image_bytes), width=Inches(6.0))
                 except Exception as e:
                     import logging
+
                     logging.error(f"Failed to embed chart '{chart_name}': {e}")
                     # Add visible warning in document
                     warning_para = doc.add_paragraph(f"[Chart image failed to embed: {e}]")
-                    warning_para.style = 'Intense Quote'
+                    warning_para.style = "Intense Quote"
 
             doc.add_page_break()
 

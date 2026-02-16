@@ -17,8 +17,10 @@ from models.cluster import ClusterResult
 from models.report import MetricsResult, ReportResult
 from services.docx_generator import DocxGenerator
 from services.ollama_client import OllamaClient
+from test_helpers import login_admin
 
 client = TestClient(app)
+pytestmark = pytest.mark.integration
 
 
 def create_test_png() -> str:
@@ -221,6 +223,7 @@ def test_report_generation_falls_back_without_ollama(monkeypatch):
         raise OllamaUnavailableError("mocked unavailable")
 
     monkeypatch.setattr(OllamaClient, "generate", mock_generate)
+    headers = login_admin(client)
 
     response = client.post(
         "/reports/generate",
@@ -230,6 +233,7 @@ def test_report_generation_falls_back_without_ollama(monkeypatch):
             "quarter_label": "Q1 2024",
             "chart_pngs": {"seed_chart": create_test_png()},
         },
+        headers=headers,
     )
 
     assert response.status_code == 200, response.text
@@ -244,10 +248,16 @@ def test_report_generation_falls_back_without_ollama(monkeypatch):
     cleanup_conn = db.get_connection()
     try:
         cleanup_conn.execute("DELETE FROM reports WHERE id = ?", (report_id,))
-        cleanup_conn.execute("DELETE FROM cluster_members WHERE cluster_id IN (SELECT id FROM clusters WHERE run_id = ?)", (run_id,))
+        cleanup_conn.execute(
+            "DELETE FROM cluster_members WHERE cluster_id IN (SELECT id FROM clusters WHERE run_id = ?)",
+            (run_id,),
+        )
         cleanup_conn.execute("DELETE FROM clusters WHERE run_id = ?", (run_id,))
         cleanup_conn.execute("DELETE FROM cluster_runs WHERE id = ?", (run_id,))
-        cleanup_conn.execute("DELETE FROM incidents WHERE external_id = ? AND source = ?", (external_id, "slack_export"))
+        cleanup_conn.execute(
+            "DELETE FROM incidents WHERE external_id = ? AND source = ?",
+            (external_id, "slack_export"),
+        )
         cleanup_conn.commit()
     finally:
         cleanup_conn.close()

@@ -32,7 +32,8 @@ class MetricsCalculator:
             where_clause = f"WHERE id IN ({placeholders})"
             params = tuple(incident_ids)
 
-        cursor = self.db.execute(f"""
+        cursor = self.db.execute(
+            f"""
             SELECT
                 id, severity, status, occurred_at, resolved_at,
                 assignee, jira_project,
@@ -43,17 +44,15 @@ class MetricsCalculator:
                 END as duration_seconds
             FROM incidents
             {where_clause}
-        """, params)
+        """,
+            params,
+        )
         rows = cursor.fetchall()
 
         total = len(rows)
 
         # Calculate durations
-        durations = [
-            row["duration_seconds"]
-            for row in rows
-            if row["duration_seconds"] is not None
-        ]
+        durations = [row["duration_seconds"] for row in rows if row["duration_seconds"] is not None]
 
         # MTTR calculation (in hours)
         mttr = (sum(durations) / len(durations) / 3600) if durations else None
@@ -102,12 +101,7 @@ class MetricsCalculator:
             by_project=by_project,
         )
 
-    def _count_by(
-        self,
-        rows: list,
-        field: str,
-        top_n: int | None = None
-    ) -> dict[str, int]:
+    def _count_by(self, rows: list, field: str, top_n: int | None = None) -> dict[str, int]:
         """Count occurrences of field values."""
         counts = Counter(row[field] for row in rows if row[field] is not None and row[field] != "")
         if top_n:

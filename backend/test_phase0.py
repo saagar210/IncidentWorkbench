@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """Phase 0 smoke tests for Incident Workbench backend."""
 
+import pytest
 from fastapi.testclient import TestClient
+
+from database import db
 from main import app
+from test_helpers import login_admin
 
 client = TestClient(app)
+pytestmark = pytest.mark.unit
 
 
 def test_health():
@@ -19,6 +24,7 @@ def test_health():
 
 def test_jira_connection():
     """Test Jira connection testing endpoint."""
+    headers = login_admin(client)
     response = client.post(
         "/settings/test-jira",
         json={
@@ -26,6 +32,7 @@ def test_jira_connection():
             "email": "test@example.com",
             "api_token": "fake-token",
         },
+        headers=headers,
     )
     assert response.status_code == 200
     data = response.json()
@@ -36,9 +43,11 @@ def test_jira_connection():
 
 def test_slack_connection():
     """Test Slack connection testing endpoint."""
+    headers = login_admin(client)
     response = client.post(
         "/settings/test-slack",
         json={"bot_token": "xoxb-fake-token"},
+        headers=headers,
     )
     assert response.status_code == 200
     data = response.json()
@@ -50,7 +59,8 @@ def test_slack_connection():
 def test_list_incidents():
     """Test incidents list endpoint."""
     # Ensure deterministic state across repeated/local runs.
-    client.delete("/incidents")
+    headers = login_admin(client)
+    client.delete("/incidents", headers=headers)
 
     response = client.get("/incidents")
     assert response.status_code == 200
@@ -63,6 +73,15 @@ def test_list_incidents():
 
 def test_list_cluster_runs():
     """Test cluster runs list endpoint."""
+    conn = db.get_connection()
+    try:
+        conn.execute("DELETE FROM cluster_members")
+        conn.execute("DELETE FROM clusters")
+        conn.execute("DELETE FROM cluster_runs")
+        conn.commit()
+    finally:
+        conn.close()
+
     response = client.get("/clusters")
     assert response.status_code == 200
     data = response.json()
@@ -73,6 +92,13 @@ def test_list_cluster_runs():
 
 def test_list_reports():
     """Test reports list endpoint."""
+    conn = db.get_connection()
+    try:
+        conn.execute("DELETE FROM reports")
+        conn.commit()
+    finally:
+        conn.close()
+
     response = client.get("/reports")
     assert response.status_code == 200
     data = response.json()

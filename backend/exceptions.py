@@ -15,45 +15,54 @@ class WorkbenchError(Exception):
 # Integration errors
 class JiraConnectionError(WorkbenchError):
     """Failed to connect to Jira."""
+
     pass
 
 
 class JiraQueryError(WorkbenchError):
     """Jira query failed."""
+
     pass
 
 
 class SlackAPIError(WorkbenchError):
     """Slack API error."""
+
     pass
 
 
 class SlackRateLimitError(SlackAPIError):
     """Slack API rate limit exceeded."""
+
     pass
 
 
 # AI/ML errors
 class OllamaUnavailableError(WorkbenchError):
     """Ollama service is not available."""
+
     pass
 
 
 class OllamaModelNotFoundError(WorkbenchError):
     """Required Ollama model not found."""
+
     pass
 
 
 class InsufficientDataError(WorkbenchError):
     """Insufficient data for operation."""
+
     pass
 
 
 class ClusteringError(WorkbenchError):
     """Clustering operation failed."""
+
     pass
 
 
 class ReportGenerationError(WorkbenchError):
     """Report generation failed."""
+
     pass

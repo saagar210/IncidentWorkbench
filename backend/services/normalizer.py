@@ -106,7 +106,9 @@ class IncidentNormalizer:
         # Parse timestamps
         occurred_at = cls._parse_slack_timestamp(first_msg.get("ts", "0"))
         # Only set resolved_at if there are multiple messages (indicating a resolution)
-        resolved_at = cls._parse_slack_timestamp(last_msg.get("ts", "0")) if len(messages) > 1 else None
+        resolved_at = (
+            cls._parse_slack_timestamp(last_msg.get("ts", "0")) if len(messages) > 1 else None
+        )
 
         # Infer severity from message text keywords
         combined_text = " ".join(msg.get("text", "") for msg in messages).lower()
@@ -141,7 +143,10 @@ class IncidentNormalizer:
         """
         if not ts_str:
             import logging
-            logging.warning("Empty timestamp string received from Jira, using current time as fallback")
+
+            logging.warning(
+                "Empty timestamp string received from Jira, using current time as fallback"
+            )
             return datetime.utcnow()
 
         try:
@@ -151,7 +156,10 @@ class IncidentNormalizer:
             return datetime.fromisoformat(clean_ts)
         except (ValueError, AttributeError) as e:
             import logging
-            logging.error(f"Failed to parse Jira timestamp '{ts_str}': {e}. Using current time as fallback.")
+
+            logging.error(
+                f"Failed to parse Jira timestamp '{ts_str}': {e}. Using current time as fallback."
+            )
             return datetime.utcnow()
 
     @staticmethod
@@ -165,7 +173,10 @@ class IncidentNormalizer:
             return datetime.fromtimestamp(epoch)
         except (ValueError, TypeError) as e:
             import logging
-            logging.error(f"Failed to parse Slack timestamp '{ts}': {e}. Using current time as fallback.")
+
+            logging.error(
+                f"Failed to parse Slack timestamp '{ts}': {e}. Using current time as fallback."
+            )
             return datetime.utcnow()
 
     @staticmethod

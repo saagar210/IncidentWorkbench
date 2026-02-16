@@ -1,0 +1,20 @@
+extends: ["spectral:oas"]
+rules:
+  operation-operationId:
+    severity: error
+    given: "$.paths[*][*]"
+    then:
+      field: operationId
+      function: truthy
+  operation-tags:
+    severity: error
+    given: "$.paths[*][*]"
+    then:
+      field: tags
+      function: truthy
+  problem-json-error-schema:
+    severity: warn
+    given: "$.paths[*][*].responses[?(@property.match(/4\\d\\d|5\\d\\d/))]"
+    then:
+      field: content.application/problem+json.schema
+      function: truthy

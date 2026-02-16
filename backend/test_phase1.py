@@ -6,10 +6,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from main import app
-from services.jira_client import JiraClient
-from services.slack_client import SlackClient
-from services.normalizer import IncidentNormalizer
 from models.incident import IncidentSource, Severity
+from services.jira_client import JiraClient
+from services.normalizer import IncidentNormalizer
+from services.slack_client import SlackClient
+from test_helpers import login_admin
+
+pytestmark = pytest.mark.unit
 
 
 def test_normalizer_jira():
@@ -107,9 +110,10 @@ def test_slack_export_parser():
 def test_slack_export_ingest_inline_json_tracks_updates():
     """Inline Slack export JSON ingestion should work and track upserts correctly."""
     client = TestClient(app)
+    headers = login_admin(client)
 
     # Start from a clean state for deterministic counter assertions.
-    client.delete("/incidents")
+    client.delete("/incidents", headers=headers)
 
     messages = [
         {
@@ -123,14 +127,14 @@ def test_slack_export_ingest_inline_json_tracks_updates():
         "channel_name": "incidents",
     }
 
-    first = client.post("/ingest/slack-export", json=payload)
+    first = client.post("/ingest/slack-export", json=payload, headers=headers)
     assert first.status_code == 200
     first_data = first.json()
     assert first_data["incidents_ingested"] == 1
     assert first_data["incidents_updated"] == 0
     assert first_data["errors"] == []
 
-    second = client.post("/ingest/slack-export", json=payload)
+    second = client.post("/ingest/slack-export", json=payload, headers=headers)
     assert second.status_code == 200
     second_data = second.json()
     assert second_data["incidents_ingested"] == 0
@@ -138,7 +142,7 @@ def test_slack_export_ingest_inline_json_tracks_updates():
     assert second_data["errors"] == []
 
     # Clean up shared DB state.
-    client.delete("/incidents")
+    client.delete("/incidents", headers=headers)
 
 
 @pytest.mark.asyncio
