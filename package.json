@@ -4,11 +4,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:lean": "bash scripts/dev-lean.sh",
     "build": "tsc && vite build",
     "test": "vitest run",
     "test:watch": "vitest",
     "clean": "bash scripts/clean.sh",
     "clean:apply": "bash scripts/clean.sh --apply",
+    "clean:full": "bash scripts/clean-full.sh",
+    "clean:full:apply": "bash scripts/clean-full.sh --apply",
     "preview": "vite preview",
     "tauri": "tauri"
   },

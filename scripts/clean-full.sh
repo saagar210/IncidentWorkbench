@@ -18,11 +18,14 @@ TARGETS=(
   "backend/build"
   "backend/dist"
   "backend/.pytest_cache"
+  "backend/.venv"
+  "backend/incident_workbench.egg-info"
   "node_modules/.vite"
+  "node_modules"
 )
 
 echo "Incident Workbench cleanup"
-echo "Profile: heavy artifacts only"
+echo "Profile: full local reproducible caches/artifacts"
 echo "Mode: $([[ "$APPLY" == true ]] && echo "apply" || echo "dry-run")"
 echo ""
 

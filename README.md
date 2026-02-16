@@ -78,6 +78,8 @@ See **[QUICKSTART.md](QUICKSTART.md)** for a step-by-step guide to your first qu
 
 ### Run in Development Mode
 
+**Normal dev mode (faster repeated startups, keeps local build caches):**
+
 ```bash
 bash scripts/dev.sh
 ```
@@ -85,6 +87,21 @@ bash scripts/dev.sh
 This starts:
 1. FastAPI backend on port 8765 (with hot reload)
 2. Tauri desktop app with React frontend (Vite HMR)
+
+**Lean dev mode (lower repo disk growth, slightly slower startups):**
+
+```bash
+npm run dev:lean
+```
+
+Lean mode behavior:
+- Uses temporary cache locations for Rust (`CARGO_TARGET_DIR`) and Vite (`VITE_CACHE_DIR`)
+- Avoids Python bytecode cache files (`PYTHONDONTWRITEBYTECODE=1`)
+- Cleans heavy generated artifacts automatically when the app exits
+
+Tradeoff:
+- Lower persistent disk usage in this repo
+- Slower startup/rebuild time versus normal mode because caches are not reused
 
 ### Run Tests
 
@@ -98,11 +115,17 @@ npm run test
 Use this when local build/test artifacts accumulate:
 
 ```bash
-# Preview what would be removed
+# Preview heavy artifact cleanup (safe default)
 npm run clean
 
-# Actually remove generated artifacts
+# Remove heavy generated artifacts (keeps dependencies for speed)
 npm run clean:apply
+
+# Preview full local reproducible cleanup
+npm run clean:full
+
+# Remove all local reproducible caches/artifacts (includes dependencies)
+npm run clean:full:apply
 ```
 
 **All tests (recommended):**

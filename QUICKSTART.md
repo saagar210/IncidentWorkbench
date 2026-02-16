@@ -50,6 +50,8 @@ pip install -e .
 
 ### Development Mode (Recommended)
 
+**Normal dev mode (faster repeated startups):**
+
 ```bash
 bash scripts/dev.sh
 ```
@@ -57,6 +59,15 @@ bash scripts/dev.sh
 This starts:
 1. FastAPI backend on port 8765 (with hot reload)
 2. Tauri desktop app with React frontend
+
+**Lean dev mode (keeps repo disk usage lower):**
+
+```bash
+npm run dev:lean
+```
+
+Lean mode uses temporary Rust/Vite caches and removes heavy local artifacts on exit.
+Startup is usually slower than normal mode because those caches are ephemeral.
 
 ### Manual Mode (Two Terminals)
 
@@ -227,6 +238,16 @@ python test_phase5.py    # Error handling
 
 ```bash
 npm run build    # Should complete without errors
+```
+
+### Cleanup Commands
+
+```bash
+# Heavy build artifacts only (safe default for daily cleanup)
+npm run clean:apply
+
+# Full local reproducible cleanup (includes dependencies)
+npm run clean:full:apply
 ```
 
 ---
