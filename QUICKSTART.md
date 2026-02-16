@@ -208,7 +208,7 @@ curl http://localhost:11434/api/tags
 - For Jira Cloud: email + API token from https://id.atlassian.com/manage-profile/security/api-tokens
 - Test manually:
   ```bash
-  curl -u your-email:YOUR_TOKEN https://jira.company.com/rest/api/2/myself
+  curl -H "Authorization: Basic ${JIRA_BASIC_AUTH}" https://jira.company.com/rest/api/2/myself
   ```
 
 ### Charts Don't Export

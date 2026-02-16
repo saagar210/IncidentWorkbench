@@ -168,7 +168,7 @@ def test_idempotency_replays_write_response():
     client = TestClient(app)
     headers = login_admin(client)
 
-    key = "phase5-idempotency-key"
+    key = "idem1"
     first = client.delete("/incidents", headers={**headers, "Idempotency-Key": key})
     second = client.delete("/incidents", headers={**headers, "Idempotency-Key": key})
 

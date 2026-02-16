@@ -274,7 +274,7 @@ Recent comprehensive code review identified and resolved **25 issues** across cr
 3. For Jira Server: Use username + password or verify API token format
 4. Test with curl first:
    ```bash
-   curl -u email@example.com:YOUR_API_TOKEN https://your-domain.atlassian.net/rest/api/2/myself
+   curl -H "Authorization: Basic ${JIRA_BASIC_AUTH}" https://your-domain.atlassian.net/rest/api/2/myself
    ```
 
 ### Slack Connection Fails
@@ -292,7 +292,7 @@ Recent comprehensive code review identified and resolved **25 issues** across cr
 3. Invite bot to the channel: `/invite @YourBotName`
 4. Test with curl:
    ```bash
-   curl -H "Authorization: Bearer xoxb-YOUR-TOKEN" https://slack.com/api/auth.test
+   curl -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" https://slack.com/api/auth.test
    ```
 
 ### Clustering Returns "No Incidents"
