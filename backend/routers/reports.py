@@ -4,9 +4,10 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Annotated
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
 from database import db
@@ -14,12 +15,14 @@ from exceptions import OllamaModelNotFoundError, OllamaUnavailableError
 from models.api import ReportGenerateRequest
 from models.cluster import ClusterResult
 from models.report import MetricsResult, ReportResult
+from security.auth import AuthUser, require_roles_dependency
 from services.docx_generator import DocxGenerator
 from services.metrics import MetricsCalculator
 from services.ollama_client import OllamaClient
 from services.summarizer import ClusterSummarizer
 
 router = APIRouter(prefix="/reports", tags=["reports"])
+AdminUser = Annotated[AuthUser, Depends(require_roles_dependency({"admin"}))]
 
 
 def _fallback_executive_summary(
@@ -49,8 +52,9 @@ def _fallback_executive_summary(
 
 
 @router.post("/generate")
-async def generate_report(request: ReportGenerateRequest) -> dict:
+async def generate_report(request: ReportGenerateRequest, current_user: AdminUser) -> dict:
     """Generate a Word document report for a cluster run."""
+    del current_user
     conn = db.get_connection()
 
     try:
@@ -216,9 +220,7 @@ async def download_report(report_id: str) -> FileResponse:
     conn = db.get_connection()
 
     try:
-        cursor = conn.execute(
-            "SELECT docx_path, title FROM reports WHERE id = ?", (report_id,)
-        )
+        cursor = conn.execute("SELECT docx_path, title FROM reports WHERE id = ?", (report_id,))
         row = cursor.fetchone()
 
         if not row or not row["docx_path"]:

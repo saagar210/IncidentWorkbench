@@ -2,7 +2,6 @@
 
 import sqlite3
 from pathlib import Path
-from typing import Any
 from threading import Lock
 
 from config import settings
@@ -68,10 +67,7 @@ class Database:
                 conn.executescript(sql)
 
                 # Record migration
-                conn.execute(
-                    "INSERT INTO _migrations (name) VALUES (?)",
-                    (migration_name,)
-                )
+                conn.execute("INSERT INTO _migrations (name) VALUES (?)", (migration_name,))
                 conn.commit()
                 print(f"Migration applied: {migration_name}")
 

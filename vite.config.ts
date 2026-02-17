@@ -2,10 +2,12 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 const host = process.env.TAURI_DEV_HOST;
+const cacheDir = process.env.VITE_CACHE_DIR;
 
 export default defineConfig({
   plugins: [react()],
   clearScreen: false,
+  cacheDir: cacheDir || "node_modules/.vite",
   build: {
     chunkSizeWarningLimit: 700,
     rollupOptions: {

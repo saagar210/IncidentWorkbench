@@ -1,6 +1,8 @@
 """Settings and connection testing router."""
 
-from fastapi import APIRouter, HTTPException
+from typing import Annotated
+
+from fastapi import APIRouter, Depends
 
 from exceptions import JiraConnectionError, SlackAPIError
 from models.api import (
@@ -8,17 +10,21 @@ from models.api import (
     SlackConnectionTestRequest,
     TestConnectionResponse,
 )
+from security.auth import AuthUser, require_roles_dependency
 from services.jira_client import JiraClient
 from services.slack_client import SlackClient
 
 router = APIRouter(prefix="/settings", tags=["settings"])
+AdminUser = Annotated[AuthUser, Depends(require_roles_dependency({"admin"}))]
 
 
 @router.post("/test-jira")
 async def test_jira_connection(
     request: JiraConnectionTestRequest,
+    current_user: AdminUser,
 ) -> TestConnectionResponse:
     """Test Jira connection with provided credentials."""
+    del current_user
     client = JiraClient(
         url=request.url,
         email=request.email,
@@ -54,8 +60,10 @@ async def test_jira_connection(
 @router.post("/test-slack")
 async def test_slack_connection(
     request: SlackConnectionTestRequest,
+    current_user: AdminUser,
 ) -> TestConnectionResponse:
     """Test Slack connection with provided bot token."""
+    del current_user
     client = SlackClient(bot_token=request.bot_token)
 
     try:

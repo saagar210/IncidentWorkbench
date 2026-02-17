@@ -14,6 +14,7 @@ from PIL import Image
 
 BASE_URL = "http://127.0.0.1:8765"
 RUN_E2E = os.getenv("RUN_E2E_PHASE4") == "1"
+pytestmark = pytest.mark.integration
 
 
 def create_test_chart_png() -> str:
@@ -113,6 +114,44 @@ def _seed_cluster_run_if_missing() -> str:
         conn.close()
 
 
+def _ensure_test_admin() -> tuple[str, str]:
+    """Seed deterministic E2E admin credentials in local SQLite."""
+    username = "test-admin"
+    password = "test-only-password"
+    db_path = Path.home() / ".incident-workbench" / "incidents.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
+        from security.auth import hash_password
+
+        password_hash = hash_password(password)
+        if row is None:
+            conn.execute(
+                """
+                INSERT INTO users (username, password_hash, roles)
+                VALUES (?, ?, ?)
+                """,
+                (username, password_hash, '["admin"]'),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE users
+                SET password_hash = ?, roles = ?
+                WHERE id = ?
+                """,
+                (password_hash, '["admin"]', row["id"]),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return username, password
+
+
 @pytest.mark.skipif(
     not RUN_E2E,
     reason="Set RUN_E2E_PHASE4=1 and start backend on 127.0.0.1:8765 to run this test",
@@ -122,6 +161,7 @@ def test_e2e_report_generation():
     print("=" * 60)
     print("Phase 4 E2E Test: Report Generation")
     print("=" * 60)
+    session = requests.Session()
 
     # Step 1: Check health
     print("\n1. Checking backend health...")
@@ -134,16 +174,27 @@ def test_e2e_report_generation():
     print(f"   ✓ Backend is healthy: {health['status']}")
     print(f"   Database: {health['database']}")
 
+    # Seed deterministic admin credentials for privileged endpoint tests.
+    username, password = _ensure_test_admin()
+    login_response = session.post(
+        f"{BASE_URL}/auth/login",
+        json={"username": username, "password": password},
+        timeout=20,
+    )
+    assert login_response.status_code == 200, f"Auth login failed: {login_response.text}"
+    csrf_token = session.cookies.get("__Host-csrf") or session.cookies.get("workbench-csrf")
+    assert csrf_token, "CSRF cookie missing after login"
+
     # Step 2: Get cluster runs
     print("\n2. Fetching cluster runs...")
-    response = requests.get(f"{BASE_URL}/clusters")
+    response = session.get(f"{BASE_URL}/clusters")
     assert response.status_code == 200, f"Failed to fetch cluster runs: {response.text}"
     runs = response.json()
 
     if not runs:
         print("   ⚠️  No cluster runs found. Seeding one for E2E coverage...")
         seeded_run_id = _seed_cluster_run_if_missing()
-        response = requests.get(f"{BASE_URL}/clusters")
+        response = session.get(f"{BASE_URL}/clusters")
         assert response.status_code == 200, f"Failed to re-fetch cluster runs: {response.text}"
         runs = response.json()
         latest_run = next((run for run in runs if run["run_id"] == seeded_run_id), runs[0])
@@ -173,7 +224,11 @@ def test_e2e_report_generation():
     }
 
     start_time = time.time()
-    response = requests.post(f"{BASE_URL}/reports/generate", json=request_data)
+    response = session.post(
+        f"{BASE_URL}/reports/generate",
+        json=request_data,
+        headers={"X-CSRF-Token": csrf_token},
+    )
     elapsed = time.time() - start_time
 
     assert response.status_code == 200, f"Report generation failed: {response.text}"
@@ -185,7 +240,7 @@ def test_e2e_report_generation():
 
     # Step 5: List reports
     print("\n5. Listing all reports...")
-    response = requests.get(f"{BASE_URL}/reports")
+    response = session.get(f"{BASE_URL}/reports")
     assert response.status_code == 200, f"Failed to list reports: {response.text}"
     reports = response.json()
     print(f"   ✓ Found {len(reports)} report(s)")
@@ -199,7 +254,7 @@ def test_e2e_report_generation():
 
     # Step 6: Download report
     print("\n6. Testing report download...")
-    response = requests.get(f"{BASE_URL}/reports/{result['report_id']}/download")
+    response = session.get(f"{BASE_URL}/reports/{result['report_id']}/download")
     assert response.status_code == 200, f"Download failed: {response.status_code}"
     assert (
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"

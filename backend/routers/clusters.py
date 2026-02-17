@@ -1,21 +1,25 @@
 """Clustering router."""
 
-from fastapi import APIRouter, HTTPException
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException
 
 from database import db
 from exceptions import ClusteringError, InsufficientDataError, OllamaUnavailableError
 from models.api import ClusterRequest, ClusterResponse
 from models.cluster import ClusterRunResult
+from security.auth import AuthUser, require_roles_dependency
 from services.clusterer import IncidentClusterer
 from services.embedder import IncidentEmbedder
 from services.ollama_client import OllamaClient
 from services.summarizer import ClusterSummarizer
 
 router = APIRouter(prefix="/clusters", tags=["clusters"])
+AdminUser = Annotated[AuthUser, Depends(require_roles_dependency({"admin"}))]
 
 
 @router.post("/run")
-async def run_clustering(request: ClusterRequest) -> ClusterResponse:
+async def run_clustering(request: ClusterRequest, current_user: AdminUser) -> ClusterResponse:
     """
     Run clustering algorithm on all incidents.
 
@@ -25,6 +29,7 @@ async def run_clustering(request: ClusterRequest) -> ClusterResponse:
     3. Generate cluster names/summaries
     4. Return results
     """
+    del current_user
     conn = db.get_connection()
     ollama = OllamaClient()
 
@@ -33,12 +38,12 @@ async def run_clustering(request: ClusterRequest) -> ClusterResponse:
         if not await ollama.is_available():
             raise HTTPException(
                 status_code=503,
-                detail="Ollama service is not available. Please ensure it's running."
+                detail="Ollama service is not available. Please ensure it's running.",
             )
 
         # Step 2: Embed any new incidents
         embedder = IncidentEmbedder(conn, ollama)
-        embedded_count = await embedder.embed_all_incidents()
+        _ = await embedder.embed_all_incidents()
 
         # Step 3: Run clustering
         clusterer = IncidentClusterer(conn)
@@ -68,9 +73,13 @@ async def run_clustering(request: ClusterRequest) -> ClusterResponse:
         await summarizer.name_all_clusters(result.run_id)
 
         # Reload result to get updated names
-        result = clusterer.get_run(result.run_id)
+        reloaded_result = clusterer.get_run(result.run_id)
+        if not reloaded_result:
+            raise HTTPException(
+                status_code=500, detail="Cluster run was not found after processing"
+            )
 
-        return ClusterResponse(run=result)
+        return ClusterResponse(run=reloaded_result)
 
     except OllamaUnavailableError as e:
         raise HTTPException(status_code=503, detail=e.message)

@@ -16,6 +16,8 @@ from services.embedder import IncidentEmbedder
 from services.ollama_client import OllamaClient
 from services.summarizer import ClusterSummarizer
 
+pytestmark = pytest.mark.integration
+
 
 class TestWardCosineGuard:
     """Test that Ward+cosine combination is properly guarded."""
@@ -143,14 +145,18 @@ class TestClusterSummarizer:
     async def test_cluster_naming(self, test_db):
         """Test cluster name generation."""
         mock_ollama = MagicMock(spec=OllamaClient)
-        mock_ollama.generate.return_value = '{"name": "Database Connection Issues", "summary": "Incidents related to DB timeouts."}'
+        mock_ollama.generate.return_value = (
+            '{"name": "Database Connection Issues", "summary": "Incidents related to DB timeouts."}'
+        )
 
         summarizer = ClusterSummarizer(mock_ollama, test_db)
-        name, summary = await summarizer.name_cluster([
-            "Database timeout in prod",
-            "Connection pool exhausted",
-            "Slow query causing timeout",
-        ])
+        name, summary = await summarizer.name_cluster(
+            [
+                "Database timeout in prod",
+                "Connection pool exhausted",
+                "Slow query causing timeout",
+            ]
+        )
 
         assert name == "Database Connection Issues"
         assert "DB timeouts" in summary
@@ -175,10 +181,13 @@ class TestEmbedder:
     async def test_batch_embedding(self, test_db):
         """Test batch embedding of incidents."""
         # Add test incidents
-        test_db.execute("""
+        test_db.execute(
+            """
             INSERT INTO incidents (external_id, source, severity, title, description, occurred_at, raw_data)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, ("INC-1", "jira", "SEV2", "Test incident", "Description", "2024-01-01T00:00:00Z", "{}"))
+        """,
+            ("INC-1", "jira", "SEV2", "Test incident", "Description", "2024-01-01T00:00:00Z", "{}"),
+        )
         test_db.commit()
 
         mock_ollama = MagicMock(spec=OllamaClient)
@@ -196,17 +205,23 @@ class TestEmbedder:
     async def test_skip_already_embedded(self, test_db):
         """Test that already-embedded incidents are skipped."""
         # Add incident and embedding
-        test_db.execute("""
+        test_db.execute(
+            """
             INSERT INTO incidents (external_id, source, severity, title, description, occurred_at, raw_data)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, ("INC-1", "jira", "SEV2", "Test", "Desc", "2024-01-01T00:00:00Z", "{}"))
+        """,
+            ("INC-1", "jira", "SEV2", "Test", "Desc", "2024-01-01T00:00:00Z", "{}"),
+        )
         incident_id = test_db.execute("SELECT last_insert_rowid()").fetchone()[0]
 
         vector = np.array([0.1] * 768, dtype=np.float32).tobytes()
-        test_db.execute("""
+        test_db.execute(
+            """
             INSERT INTO embeddings (incident_id, embedding, model)
             VALUES (?, ?, ?)
-        """, (incident_id, vector, "nomic-embed-text"))
+        """,
+            (incident_id, vector, "nomic-embed-text"),
+        )
         test_db.commit()
 
         mock_ollama = MagicMock(spec=OllamaClient)
@@ -218,6 +233,7 @@ class TestEmbedder:
 
 
 # Fixtures
+
 
 @pytest.fixture
 def test_db():
@@ -238,10 +254,21 @@ def test_db_with_embeddings(test_db):
     """Test database with incidents and embeddings."""
     # Add 10 test incidents
     for i in range(10):
-        test_db.execute("""
+        test_db.execute(
+            """
             INSERT INTO incidents (external_id, source, severity, title, description, occurred_at, raw_data)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (f"INC-{i}", "jira", "SEV2", f"Incident {i}", f"Description {i}", "2024-01-01T00:00:00Z", "{}"))
+        """,
+            (
+                f"INC-{i}",
+                "jira",
+                "SEV2",
+                f"Incident {i}",
+                f"Description {i}",
+                "2024-01-01T00:00:00Z",
+                "{}",
+            ),
+        )
 
         incident_id = test_db.execute("SELECT last_insert_rowid()").fetchone()[0]
 
@@ -249,10 +276,13 @@ def test_db_with_embeddings(test_db):
         np.random.seed(i)
         vector = np.random.randn(768).astype(np.float32).tobytes()
 
-        test_db.execute("""
+        test_db.execute(
+            """
             INSERT INTO embeddings (incident_id, embedding, model)
             VALUES (?, ?, ?)
-        """, (incident_id, vector, "nomic-embed-text"))
+        """,
+            (incident_id, vector, "nomic-embed-text"),
+        )
 
     test_db.commit()
     return test_db

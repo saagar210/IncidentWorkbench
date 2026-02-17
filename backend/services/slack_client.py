@@ -2,10 +2,11 @@
 
 import asyncio
 import json
-from typing import Any, Callable
+from typing import Callable
 
 import httpx
 
+from clients.http import new_async_client, request_with_retries
 from exceptions import SlackAPIError, SlackRateLimitError
 
 
@@ -27,10 +28,13 @@ class SlackClient:
             Dict with team and user info
         """
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(
+            async with new_async_client(timeout=httpx.Timeout(10.0)) as client:
+                response = await request_with_retries(
+                    client,
+                    "POST",
                     f"{self.base_url}/auth.test",
                     headers={"Authorization": f"Bearer {self.bot_token}"},
+                    max_attempts=2,
                 )
 
                 data = response.json()
@@ -107,7 +111,7 @@ class SlackClient:
         fetched_count = 0
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with new_async_client(timeout=httpx.Timeout(30.0)) as client:
                 while True:
                     params = {
                         "channel": channel_id,
@@ -118,10 +122,13 @@ class SlackClient:
                     if cursor:
                         params["cursor"] = cursor
 
-                    response = await client.get(
+                    response = await request_with_retries(
+                        client,
+                        "GET",
                         f"{self.base_url}/conversations.history",
                         params=params,
                         headers={"Authorization": f"Bearer {self.bot_token}"},
+                        max_attempts=3,
                     )
 
                     data = response.json()
@@ -173,17 +180,20 @@ class SlackClient:
         await asyncio.sleep(self.RATE_LIMIT_DELAY)
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with new_async_client(timeout=httpx.Timeout(30.0)) as client:
                 # User token required for thread replies
                 token = self.user_token or self.bot_token
 
-                response = await client.get(
+                response = await request_with_retries(
+                    client,
+                    "GET",
                     f"{self.base_url}/conversations.replies",
                     params={
                         "channel": channel_id,
                         "ts": thread_ts,
                     },
                     headers={"Authorization": f"Bearer {token}"},
+                    max_attempts=3,
                 )
 
                 data = response.json()

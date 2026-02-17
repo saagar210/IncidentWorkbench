@@ -7,6 +7,8 @@ from database import Database
 from services.normalizer import IncidentNormalizer
 from models.incident import IncidentSource, Severity
 
+pytestmark = pytest.mark.integration
+
 
 @pytest.mark.asyncio
 async def test_full_pipeline():

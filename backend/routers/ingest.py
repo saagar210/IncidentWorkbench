@@ -1,25 +1,55 @@
 """Incident ingestion router."""
 
 import json
-import sqlite3
 from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Annotated, Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from config import settings
 from database import db
 from exceptions import JiraConnectionError, JiraQueryError, SlackAPIError
-from models.api import IngestResponse, JiraIngestRequest, SlackIngestRequest, SlackExportIngestRequest
+from models.api import (
+    IngestResponse,
+    JiraIngestRequest,
+    SlackExportIngestRequest,
+    SlackIngestRequest,
+)
 from models.incident import IncidentSource
+from security.auth import AuthUser, require_roles_dependency
 from services.jira_client import JiraClient
 from services.normalizer import IncidentNormalizer
 from services.slack_client import SlackClient
 
 router = APIRouter(prefix="/ingest", tags=["ingest"])
+AdminUser = Annotated[AuthUser, Depends(require_roles_dependency({"admin"}))]
+
+
+def _resolve_safe_export_path(raw_path: str) -> Path:
+    """Restrict json_path ingestion to a configured safe directory."""
+    json_file = Path(raw_path).expanduser().resolve()
+    if json_file.suffix.lower() != ".json":
+        raise ValueError("json_path must reference a .json file")
+
+    allowed_root = settings.slack_export_dir.expanduser().resolve()
+    try:
+        json_file.relative_to(allowed_root)
+    except ValueError as exc:
+        raise ValueError(
+            f"json_path must stay under the configured import directory: {allowed_root}"
+        ) from exc
+
+    if not json_file.is_file():
+        raise ValueError("json_path does not exist")
+
+    return json_file
 
 
 @router.post("/jira")
-async def ingest_from_jira(request: JiraIngestRequest) -> IngestResponse:
+async def ingest_from_jira(request: JiraIngestRequest, current_user: AdminUser) -> IngestResponse:
     """Ingest incidents from Jira using JQL query."""
+    del current_user
     errors = []
     ingested = 0
     updated = 0
@@ -83,7 +113,9 @@ async def ingest_from_jira(request: JiraIngestRequest) -> IngestResponse:
                             ingested += 1
 
                 except Exception as e:
-                    errors.append(f"Failed to normalize issue {issue.get('key', 'unknown')}: {str(e)}")
+                    errors.append(
+                        f"Failed to normalize issue {issue.get('key', 'unknown')}: {str(e)}"
+                    )
 
             conn.commit()
         except Exception:
@@ -107,8 +139,9 @@ async def ingest_from_jira(request: JiraIngestRequest) -> IngestResponse:
 
 
 @router.post("/slack")
-async def ingest_from_slack(request: SlackIngestRequest) -> IngestResponse:
+async def ingest_from_slack(request: SlackIngestRequest, current_user: AdminUser) -> IngestResponse:
     """Ingest incidents from Slack channel history."""
+    del current_user
     errors = []
     ingested = 0
     updated = 0
@@ -130,9 +163,12 @@ async def ingest_from_slack(request: SlackIngestRequest) -> IngestResponse:
         )
 
         # Group messages by thread
-        threads = {}
+        threads: dict[str, list[dict[str, Any]]] = {}
         for msg in messages:
-            thread_ts = msg.get("thread_ts", msg.get("ts"))
+            raw_thread_ts = msg.get("thread_ts", msg.get("ts"))
+            if raw_thread_ts is None:
+                continue
+            thread_ts = str(raw_thread_ts)
             if thread_ts not in threads:
                 threads[thread_ts] = []
             threads[thread_ts].append(msg)
@@ -213,8 +249,11 @@ async def ingest_from_slack(request: SlackIngestRequest) -> IngestResponse:
 
 
 @router.post("/slack-export")
-async def ingest_from_slack_export(request: SlackExportIngestRequest) -> IngestResponse:
+async def ingest_from_slack_export(
+    request: SlackExportIngestRequest, current_user: AdminUser
+) -> IngestResponse:
     """Ingest incidents from exported Slack JSON."""
+    del current_user
     errors = []
     ingested = 0
     updated = 0
@@ -224,8 +263,8 @@ async def ingest_from_slack_export(request: SlackExportIngestRequest) -> IngestR
         if request.json_content is not None:
             export_data = request.json_content
         elif request.json_path is not None:
-            with open(request.json_path, "r") as f:
-                export_data = f.read()
+            json_file = _resolve_safe_export_path(request.json_path)
+            export_data = json_file.read_text(encoding="utf-8")
         else:
             # Should be unreachable due request model validation.
             raise ValueError("Either json_content or json_path must be provided")
@@ -234,9 +273,12 @@ async def ingest_from_slack_export(request: SlackExportIngestRequest) -> IngestR
         messages = SlackClient.parse_export(export_data)
 
         # Group by thread
-        threads = {}
+        threads: dict[str, list[dict[str, Any]]] = {}
         for msg in messages:
-            thread_ts = msg.get("thread_ts", msg.get("ts"))
+            raw_thread_ts = msg.get("thread_ts", msg.get("ts"))
+            if raw_thread_ts is None:
+                continue
+            thread_ts = str(raw_thread_ts)
             if thread_ts not in threads:
                 threads[thread_ts] = []
             threads[thread_ts].append(msg)

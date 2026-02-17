@@ -15,9 +15,9 @@ class ClusterSummarizer:
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Short cluster name, 3-6 words"},
-            "summary": {"type": "string", "description": "1-2 sentence summary"}
+            "summary": {"type": "string", "description": "1-2 sentence summary"},
         },
-        "required": ["name", "summary"]
+        "required": ["name", "summary"],
     }
 
     def __init__(self, ollama: OllamaClient, db_conn: sqlite3.Connection) -> None:
@@ -65,9 +65,12 @@ class ClusterSummarizer:
             run_id: UUID of the cluster run
         """
         # Get run database ID
-        cursor = self.db.execute("""
+        cursor = self.db.execute(
+            """
             SELECT id FROM cluster_runs WHERE id = ?
-        """, (run_id,))
+        """,
+            (run_id,),
+        )
         run_row = cursor.fetchone()
         if not run_row:
             return
@@ -75,24 +78,30 @@ class ClusterSummarizer:
         db_run_id = run_row["id"]
 
         # Get all clusters for this run
-        cursor = self.db.execute("""
+        cursor = self.db.execute(
+            """
             SELECT id, cluster_label
             FROM clusters
             WHERE run_id = ?
-        """, (db_run_id,))
+        """,
+            (db_run_id,),
+        )
         cluster_rows = cursor.fetchall()
 
         for cluster_row in cluster_rows:
             cluster_db_id = cluster_row["id"]
 
             # Get incident titles for this cluster
-            cursor = self.db.execute("""
+            cursor = self.db.execute(
+                """
                 SELECT i.title
                 FROM cluster_members cm
                 JOIN incidents i ON i.id = cm.incident_id
                 WHERE cm.cluster_id = ?
                 ORDER BY i.title
-            """, (cluster_db_id,))
+            """,
+                (cluster_db_id,),
+            )
             title_rows = cursor.fetchall()
             titles = [r["title"] for r in title_rows]
 
@@ -103,11 +112,14 @@ class ClusterSummarizer:
             name, summary = await self.name_cluster(titles)
 
             # Update cluster
-            self.db.execute("""
+            self.db.execute(
+                """
                 UPDATE clusters
                 SET summary = ?, centroid_text = ?
                 WHERE id = ?
-            """, (name, summary, cluster_db_id))
+            """,
+                (name, summary, cluster_db_id),
+            )
 
         self.db.commit()
 

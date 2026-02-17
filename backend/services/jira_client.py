@@ -2,6 +2,7 @@
 
 import httpx
 
+from clients.http import new_async_client, request_with_retries
 from exceptions import JiraConnectionError, JiraQueryError
 
 
@@ -21,10 +22,13 @@ class JiraClient:
             Dict with server info (title and version)
         """
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(
+            async with new_async_client(timeout=httpx.Timeout(10.0)) as client:
+                response = await request_with_retries(
+                    client,
+                    "GET",
                     f"{self.url}/rest/api/2/serverInfo",
                     auth=self.auth,
+                    max_attempts=2,
                 )
 
                 if response.status_code == 401:
@@ -84,9 +88,11 @@ class JiraClient:
         batch_size = 50  # Jira's recommended page size
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with new_async_client(timeout=httpx.Timeout(30.0)) as client:
                 while True:
-                    response = await client.get(
+                    response = await request_with_retries(
+                        client,
+                        "GET",
                         f"{self.url}/rest/api/2/search",
                         params={
                             "jql": jql,
@@ -95,6 +101,7 @@ class JiraClient:
                             "fields": "summary,description,status,priority,assignee,created,resolutiondate,labels,project",
                         },
                         auth=self.auth,
+                        max_attempts=3,
                     )
 
                     if response.status_code == 400:

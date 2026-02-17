@@ -1,10 +1,10 @@
 """Incident embedding service."""
 
 import sqlite3
+
 import numpy as np
 
 from services.ollama_client import OllamaClient
-
 
 BATCH_SIZE = 32
 
@@ -52,8 +52,8 @@ class IncidentEmbedder:
         # Batch embed
         count = 0
         for i in range(0, len(texts), BATCH_SIZE):
-            batch_texts = texts[i:i + BATCH_SIZE]
-            batch_ids = incident_ids[i:i + BATCH_SIZE]
+            batch_texts = texts[i : i + BATCH_SIZE]
+            batch_ids = incident_ids[i : i + BATCH_SIZE]
 
             # Get embeddings from Ollama
             embeddings = await self.ollama.embed_batch(batch_texts, model=model)
@@ -63,10 +63,13 @@ class IncidentEmbedder:
                 # Convert to numpy float32 and store as BLOB
                 vector_blob = np.array(embedding, dtype=np.float32).tobytes()
 
-                self.db.execute("""
+                self.db.execute(
+                    """
                     INSERT OR REPLACE INTO embeddings (incident_id, embedding, model)
                     VALUES (?, ?, ?)
-                """, (incident_id, vector_blob, model))
+                """,
+                    (incident_id, vector_blob, model),
+                )
                 count += 1
 
         self.db.commit()

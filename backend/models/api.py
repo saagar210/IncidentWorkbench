@@ -75,7 +75,16 @@ class ReportGenerateRequest(BaseModel):
     cluster_run_id: str = Field(..., description="Cluster run ID (UUID)")
     title: str = Field(default="Incident Analysis Report", description="Report title")
     quarter_label: str = Field(..., description="Quarter label (e.g., 'Q1 2024')")
-    chart_pngs: dict[str, str] = Field(default_factory=dict, description="Chart names to base64-encoded PNG data")
+    chart_pngs: dict[str, str] = Field(
+        default_factory=dict, description="Chart names to base64-encoded PNG data"
+    )
+
+
+class LoginRequest(BaseModel):
+    """Request to create a user session."""
+
+    username: str = Field(..., min_length=3, max_length=128)
+    password: str = Field(..., min_length=8, max_length=512)
 
 
 class TestConnectionRequest(BaseModel):
@@ -132,3 +141,17 @@ class TestConnectionResponse(BaseModel):
     success: bool
     message: str
     details: dict = Field(default_factory=dict)
+
+
+class AuthUserResponse(BaseModel):
+    """Authenticated user details for API responses."""
+
+    username: str
+    roles: list[str]
+
+
+class AuthSessionResponse(BaseModel):
+    """Session response returned by login endpoints."""
+
+    user: AuthUserResponse
+    csrf_token: str

@@ -36,3 +36,21 @@ async def health_check() -> dict:
         "database": db_status,
         "ollama": ollama_status,
     }
+
+
+@router.get("/live")
+async def liveness() -> dict:
+    """Liveness probe used by orchestration/runtime checks."""
+    return {"status": "ok"}
+
+
+@router.get("/ready")
+async def readiness() -> dict:
+    """Readiness probe that confirms dependencies are reachable."""
+    conn = db.get_connection()
+    try:
+        conn.execute("SELECT 1").fetchone()
+    finally:
+        conn.close()
+
+    return {"status": "ready"}

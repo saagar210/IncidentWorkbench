@@ -24,7 +24,7 @@ class IncidentClusterer:
         min_clusters: int = 2,
         max_clusters: int = 15,
         linkage: str = "average",
-        metric: str = "cosine"
+        metric: str = "cosine",
     ) -> ClusterRunResult:
         """
         Run clustering on all incidents with embeddings.
@@ -83,17 +83,15 @@ class IncidentClusterer:
 
         # Build embedding matrix
         incident_ids = [row["incident_id"] for row in rows]
-        matrix = np.array([
-            np.frombuffer(row["embedding"], dtype=np.float32) for row in rows
-        ])  # Shape: (n_incidents, 768)
+        matrix = np.array(
+            [np.frombuffer(row["embedding"], dtype=np.float32) for row in rows]
+        )  # Shape: (n_incidents, 768)
 
         # Run clustering
         try:
             if num_clusters is not None:
                 # Fixed cluster count
-                labels, score = self._cluster_fixed(
-                    matrix, num_clusters, linkage, metric
-                )
+                labels, score = self._cluster_fixed(matrix, num_clusters, linkage, metric)
             else:
                 # Auto-determine via silhouette score
                 labels, num_clusters, score = self._cluster_auto(
@@ -103,13 +101,11 @@ class IncidentClusterer:
         except Exception as e:
             raise ClusteringError(
                 f"Clustering failed: {e}",
-                details={"error": str(e), "linkage": linkage, "metric": metric}
+                details={"error": str(e), "linkage": linkage, "metric": metric},
             )
 
         # Store results in database
-        run_id = self._store_cluster_run(
-            incident_ids, labels, num_clusters, linkage, metric, score
-        )
+        run_id = self._store_cluster_run(incident_ids, labels, num_clusters, linkage, metric, score)
 
         # Build result object
         return self._build_result(
@@ -174,7 +170,7 @@ class IncidentClusterer:
         n_clusters: int,
         linkage: str,
         metric: str,
-        score: float | None
+        score: float | None,
     ) -> str:
         """Store cluster run and assignments in database."""
         run_id = str(uuid4())
@@ -186,10 +182,13 @@ class IncidentClusterer:
             "silhouette_score": score,
         }
 
-        self.db.execute("""
+        self.db.execute(
+            """
             INSERT INTO cluster_runs (id, n_clusters, method, parameters)
             VALUES (?, ?, ?, ?)
-        """, (run_id, n_clusters, "agglomerative", json.dumps(params)))
+        """,
+            (run_id, n_clusters, "agglomerative", json.dumps(params)),
+        )
 
         # Group incidents by cluster label
         clusters_map: dict[int, list[int]] = {}
@@ -202,19 +201,25 @@ class IncidentClusterer:
         # Store clusters and members
         for cluster_label, member_ids in clusters_map.items():
             # Insert cluster
-            cursor = self.db.execute("""
+            cursor = self.db.execute(
+                """
                 INSERT INTO clusters (run_id, cluster_label, summary, centroid_text)
                 VALUES (?, ?, NULL, NULL)
-            """, (run_id, cluster_label))
+            """,
+                (run_id, cluster_label),
+            )
 
             cluster_db_id = cursor.lastrowid
 
             # Insert cluster members
             for incident_id in member_ids:
-                self.db.execute("""
+                self.db.execute(
+                    """
                     INSERT INTO cluster_members (cluster_id, incident_id, distance_to_centroid)
                     VALUES (?, ?, NULL)
-                """, (cluster_db_id, incident_id))
+                """,
+                    (cluster_db_id, incident_id),
+                )
 
         self.db.commit()
         return run_id
@@ -228,7 +233,7 @@ class IncidentClusterer:
         n_clusters: int,
         score: float | None,
         linkage: str,
-        metric: str
+        metric: str,
     ) -> ClusterRunResult:
         """Build ClusterRunResult from clustering output."""
         # Group incidents by cluster
@@ -242,13 +247,15 @@ class IncidentClusterer:
         # Build ClusterResult objects
         clusters = []
         for cluster_id, member_ids in clusters_map.items():
-            clusters.append(ClusterResult(
-                cluster_id=cluster_id,
-                incident_ids=member_ids,
-                size=len(member_ids),
-                summary=None,
-                centroid_text=None,
-            ))
+            clusters.append(
+                ClusterResult(
+                    cluster_id=cluster_id,
+                    incident_ids=member_ids,
+                    size=len(member_ids),
+                    summary=None,
+                    centroid_text=None,
+                )
+            )
 
         return ClusterRunResult(
             run_id=run_id,
@@ -265,11 +272,14 @@ class IncidentClusterer:
 
     def get_run(self, run_id: str) -> ClusterRunResult | None:
         """Retrieve a cluster run by ID."""
-        cursor = self.db.execute("""
+        cursor = self.db.execute(
+            """
             SELECT id, n_clusters, method, parameters, created_at
             FROM cluster_runs
             WHERE id = ?
-        """, (run_id,))
+        """,
+            (run_id,),
+        )
         run_row = cursor.fetchone()
 
         if not run_row:
@@ -278,12 +288,15 @@ class IncidentClusterer:
         params = json.loads(run_row["parameters"])
 
         # Get clusters for this run
-        cursor = self.db.execute("""
+        cursor = self.db.execute(
+            """
             SELECT id, cluster_label, summary, centroid_text
             FROM clusters
             WHERE run_id = ?
             ORDER BY cluster_label
-        """, (run_id,))
+        """,
+            (run_id,),
+        )
         cluster_rows = cursor.fetchall()
 
         clusters = []
@@ -291,22 +304,27 @@ class IncidentClusterer:
             cluster_db_id = cluster_row["id"]
 
             # Get members
-            cursor = self.db.execute("""
+            cursor = self.db.execute(
+                """
                 SELECT incident_id
                 FROM cluster_members
                 WHERE cluster_id = ?
                 ORDER BY incident_id
-            """, (cluster_db_id,))
+            """,
+                (cluster_db_id,),
+            )
             member_rows = cursor.fetchall()
             member_ids = [r["incident_id"] for r in member_rows]
 
-            clusters.append(ClusterResult(
-                cluster_id=cluster_row["cluster_label"],
-                incident_ids=member_ids,
-                size=len(member_ids),
-                summary=cluster_row["summary"],
-                centroid_text=cluster_row["centroid_text"],
-            ))
+            clusters.append(
+                ClusterResult(
+                    cluster_id=cluster_row["cluster_label"],
+                    incident_ids=member_ids,
+                    size=len(member_ids),
+                    summary=cluster_row["summary"],
+                    centroid_text=cluster_row["centroid_text"],
+                )
+            )
 
         return ClusterRunResult(
             run_id=run_id,

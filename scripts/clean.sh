@@ -13,19 +13,16 @@ cd "$ROOT_DIR"
 TARGETS=(
   ".DS_Store"
   "backend/.DS_Store"
+  "dist"
+  "src-tauri/target"
   "backend/build"
   "backend/dist"
-  "backend/.venv"
   "backend/.pytest_cache"
-  "backend/incident_workbench.egg-info"
-  "backend/__pycache__"
-  "backend/models/__pycache__"
-  "backend/routers/__pycache__"
-  "backend/services/__pycache__"
-  "node_modules"
+  "node_modules/.vite"
 )
 
 echo "Incident Workbench cleanup"
+echo "Profile: heavy artifacts only"
 echo "Mode: $([[ "$APPLY" == true ]] && echo "apply" || echo "dry-run")"
 echo ""
 
@@ -42,6 +39,16 @@ for target in "${TARGETS[@]}"; do
     fi
   fi
 done
+
+while IFS= read -r pycache_path; do
+  found_any=true
+  if [[ "$APPLY" == true ]]; then
+    rm -rf "$pycache_path"
+    echo "Removed: ${pycache_path#./}"
+  else
+    echo "Would remove: ${pycache_path#./}"
+  fi
+done < <(find backend -path "backend/.venv" -prune -o -type d -name "__pycache__" -print 2>/dev/null)
 
 if [[ "$found_any" == false ]]; then
   echo "Nothing to clean."

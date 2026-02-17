@@ -6,13 +6,17 @@ Tests for:
 - Edge case handling
 """
 
+import hashlib
 import sqlite3
 import pytest
 from pathlib import Path
 from fastapi.testclient import TestClient
 
+from database import Database, db
 from main import app
-from database import Database
+from test_helpers import login_admin
+
+pytestmark = pytest.mark.integration
 
 
 def test_wal_mode_enabled(tmp_path: Path):
@@ -63,15 +67,17 @@ def test_ollama_unavailable_error():
 def test_insufficient_data_error():
     """Test clustering with no incidents returns error."""
     client = TestClient(app)
+    headers = login_admin(client)
 
     # First, ensure no incidents exist
-    client.delete("/incidents")
+    client.delete("/incidents", headers=headers)
 
     # Try to run clustering
-    response = client.post("/clusters/run", json={
-        "method": "hdbscan",
-        "min_cluster_size": 3
-    })
+    response = client.post(
+        "/clusters/run",
+        json={"method": "hdbscan", "min_cluster_size": 3},
+        headers=headers,
+    )
 
     # Should return error (400/422/503 depending on validation vs service availability)
     assert response.status_code in [400, 422, 503]
@@ -83,14 +89,16 @@ def test_insufficient_data_error():
 def test_jira_connection_error_returns_error():
     """Test that invalid Jira credentials return appropriate error."""
     client = TestClient(app)
+    headers = login_admin(client)
 
     response = client.post(
         "/settings/test-jira",
         json={
             "url": "https://invalid-jira-url.example.com",
             "email": "test@example.com",
-            "api_token": "invalid_token"
-        }
+            "api_token": "invalid_token",
+        },
+        headers=headers,
     )
 
     # Test connection endpoint returns 200 with success=false in body
@@ -106,9 +114,10 @@ def test_jira_connection_error_returns_error():
 def test_error_response_format():
     """Verify error responses have consistent format."""
     client = TestClient(app)
+    headers = login_admin(client)
 
     # Try to get a non-existent incident
-    response = client.get("/incidents/99999")
+    response = client.get("/incidents/99999", headers=headers)
 
     # Should return error with 'detail' field
     if response.status_code != 200:
@@ -116,15 +125,101 @@ def test_error_response_format():
         assert "detail" in data or "message" in data, "Error should have detail or message field"
 
 
+def test_problem_details_shape_for_404():
+    """Non-2xx errors should expose RFC 9457-style fields."""
+    client = TestClient(app)
+    headers = login_admin(client)
+
+    response = client.get("/incidents/99999", headers=headers)
+    assert response.status_code == 404
+    assert response.headers["content-type"].startswith("application/problem+json")
+
+    payload = response.json()
+    assert "type" in payload
+    assert "title" in payload
+    assert payload["status"] == 404
+    assert "detail" in payload
+
+
+def test_request_id_is_propagated():
+    """Every request should return an X-Request-ID header."""
+    client = TestClient(app)
+
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert "X-Request-ID" in response.headers
+    assert len(response.headers["X-Request-ID"]) > 0
+
+
+def test_logout_revokes_session_immediately():
+    """Session logout should revoke access immediately."""
+    client = TestClient(app)
+    headers = login_admin(client)
+
+    me_before = client.get("/auth/me")
+    assert me_before.status_code == 200
+
+    logout = client.post("/auth/logout", headers=headers)
+    assert logout.status_code == 200
+
+    me_after = client.get("/auth/me")
+    assert me_after.status_code == 401
+
+
+def test_idempotency_replays_write_response():
+    """A repeated idempotency key should replay the original response."""
+    client = TestClient(app)
+    headers = login_admin(client)
+
+    key = "idem1"
+    first = client.delete("/incidents", headers={**headers, "Idempotency-Key": key})
+    second = client.delete("/incidents", headers={**headers, "Idempotency-Key": key})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json() == second.json()
+    assert second.headers.get("Idempotency-Replayed") == "true"
+
+
+def test_idempotency_blocks_duplicate_while_first_request_pending():
+    """A second request with a pending key should be rejected, not executed twice."""
+    client = TestClient(app)
+    headers = login_admin(client)
+
+    key = "idem-pending-1"
+    route = "/incidents"
+    request_hash = hashlib.sha256(b"").hexdigest()
+
+    conn = db.get_connection()
+    try:
+        conn.execute("DELETE FROM idempotency_keys WHERE key = ? AND route = ?", (key, route))
+        conn.execute(
+            """
+            INSERT INTO idempotency_keys (key, route, request_hash, response_code, response_body)
+            VALUES (?, ?, ?, NULL, NULL)
+            """,
+            (key, route, request_hash),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    response = client.delete("/incidents", headers={**headers, "Idempotency-Key": key})
+    assert response.status_code == 409
+    payload = response.json()
+    assert payload["type"].endswith("/idempotency-in-progress")
+
+
 def test_empty_incidents_list():
     """Test that empty incidents list is handled gracefully."""
     client = TestClient(app)
+    headers = login_admin(client)
 
     # Delete all incidents
-    client.delete("/incidents")
+    client.delete("/incidents", headers=headers)
 
     # Fetch incidents
-    response = client.get("/incidents")
+    response = client.get("/incidents", headers=headers)
 
     assert response.status_code == 200
     data = response.json()
@@ -135,12 +230,13 @@ def test_empty_incidents_list():
 def test_metrics_with_no_data():
     """Test metrics endpoint with no incidents."""
     client = TestClient(app)
+    headers = login_admin(client)
 
     # Delete all incidents
-    client.delete("/incidents")
+    client.delete("/incidents", headers=headers)
 
     # Fetch metrics
-    response = client.get("/incidents/metrics")
+    response = client.get("/incidents/metrics", headers=headers)
 
     # Metrics may return 422 if no data, or 200 with zeros
     assert response.status_code in [200, 422]
